@@ -1,6 +1,6 @@
 import { defineConfig } from '@playwright/test'
 export default defineConfig({
-  testDir: './e2e', workers: 1, retries: 0, timeout: 30_000,
+  testDir: './test', workers: 1, retries: 0, timeout: 30_000,
   use: { baseURL: 'http://127.0.0.1:3000', trace: 'retain-on-failure', screenshot: 'only-on-failure' },
-  webServer: { command: 'npm start', url: 'http://127.0.0.1:3000', reuseExistingServer: false },
+  webServer: { command: 'npm start', cwd: '../..', url: 'http://127.0.0.1:3000', reuseExistingServer: false },
 })

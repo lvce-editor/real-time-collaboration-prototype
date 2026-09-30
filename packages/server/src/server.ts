@@ -1,4 +1,4 @@
-import { createCollaboration } from './session-server.ts'
+import { createCollaboration } from '@lvce-editor/real-time-collaboration/server'
 // The pinned LVCE server owns HTTP listening. Local postinstall hooks mount this
 // isolated view without exposing LVCE's unauthenticated local filesystem RPC.
 declare global {

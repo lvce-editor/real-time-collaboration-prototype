@@ -24,7 +24,7 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
       - run: npm test
-      - run: node scripts/patch-server.js
+      - run: node packages/server/scripts/patch-server.js
   browser:
     name: Browser collaboration
     runs-on: ubuntu-latest

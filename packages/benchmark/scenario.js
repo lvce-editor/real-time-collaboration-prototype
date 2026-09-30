@@ -1,8 +1,8 @@
 import { performance } from 'node:perf_hooks'
 import { WebSocket } from 'ws'
 import * as Y from 'yjs'
-import { fixture } from '../test/helpers.js'
-import { encode, decode } from '../src/session-server.ts'
+import { fixture } from '@lvce-editor/real-time-collaboration/testing'
+import { encode, decode } from '@lvce-editor/real-time-collaboration/server'
 const count = Number(process.argv[2]), started = performance.now()
 const f = await fixture()
 const credentials = f.create('Host', { 'benchmark.txt': '' })

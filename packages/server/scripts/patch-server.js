@@ -1,7 +1,24 @@
-import { readFile, writeFile } from 'node:fs/promises'
+import { access, readFile, writeFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
+import { dirname, join, parse } from 'node:path'
+import { pathToFileURL } from 'node:url'
 
 // Fail closed on upstream changes; npm ci reapplies these exact, idempotent hooks.
-const url = new URL('../node_modules/@lvce-editor/server/src/server.js', import.meta.url)
+const require = createRequire(import.meta.url)
+const entry = require.resolve('@lvce-editor/server')
+let directory = dirname(entry)
+let serverFile
+while (directory !== parse(directory).root) {
+  const candidate = join(directory, 'src/server.js')
+  try {
+    await access(candidate)
+    serverFile = candidate
+    break
+  } catch {}
+  directory = dirname(directory)
+}
+if (!serverFile) throw new Error(`Could not locate @lvce-editor/server/src/server.js from ${entry}`)
+const url = pathToFileURL(serverFile)
 let source = await readFile(url, 'utf8')
 const patches = [
   ['const handleRequest = (req, res) => {', 'const handleRequest = (req, res) => {\n  if (globalThis.lvceCollaboration) return globalThis.lvceCollaboration.request(req, res)'],

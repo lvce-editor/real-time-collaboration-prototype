@@ -9,5 +9,5 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["src/server.ts", "src/session-server.ts", "src/vendor.d.ts"]
+  "include": ["../server/src/server.ts", "src/session-server.ts", "src/vendor.d.ts"]
 }

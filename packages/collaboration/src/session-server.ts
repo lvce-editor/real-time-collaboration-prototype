@@ -4,6 +4,7 @@ import { WebSocketServer, WebSocket } from 'ws'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Duplex } from 'node:stream'
 import * as Y from 'yjs'
+import { fileURLToPath } from 'node:url'
 
 type Role = 'host' | 'reader' | 'writer'
 type Credentials = { session: string; token: string; id: string }
@@ -190,7 +191,7 @@ export function createCollaboration({ idleMs = 30 * 60_000, maxMembers = 10_001,
       } else if (req.method === 'GET' && assets[path]) {
         const [file, mime] = assets[path]
         res.setHeader('Content-Type', mime)
-        res.end(await readFile(new URL(`../dist/${file}`, import.meta.url)))
+        res.end(await readFile(fileURLToPath(new URL(`../../../dist/${file}`, import.meta.url))))
       } else {
         res.statusCode = 404
         res.end('Not found')

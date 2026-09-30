@@ -1,0 +1,27 @@
+{
+  "name": "@lvce-editor/real-time-collaboration",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./server": "./src/session-server.ts",
+    "./testing": "./test/helpers.js"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "typecheck": "tsc --noEmit -p tsconfig.server.json && tsc --noEmit -p tsconfig.browser.json"
+  },
+  "dependencies": {
+    "@codemirror/state": "6.7.6",
+    "@codemirror/view": "6.43.13",
+    "codemirror": "6.0.2",
+    "ws": "8.22.0",
+    "y-codemirror.next": "0.3.6",
+    "yjs": "13.6.33"
+  },
+  "devDependencies": {
+    "@types/node": "24.5.2",
+    "@types/ws": "8.18.1",
+    "typescript": "5.9.3"
+  }
+}
