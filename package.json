@@ -1,0 +1,27 @@
+{
+  "name": "@lvce-editor/real-time-collaboration-prototype",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "postinstall": "node scripts/patch-server.js",
+    "build": "node scripts/build.js",
+    "start": "node src/server.js",
+    "test": "node --test test/*.test.js",
+    "test:e2e": "playwright test",
+    "benchmark": "node benchmark/run.js"
+  },
+  "dependencies": {
+    "@codemirror/state": "6.7.6",
+    "@codemirror/view": "6.43.13",
+    "@lvce-editor/server": "0.118.22",
+    "codemirror": "6.0.2",
+    "ws": "8.22.0",
+    "y-codemirror.next": "0.3.6",
+    "yjs": "13.6.33"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "esbuild": "0.28.2"
+  }
+}
