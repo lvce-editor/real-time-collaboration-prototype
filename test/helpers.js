@@ -1,6 +1,6 @@
 import { createServer } from 'node:http'
 import { WebSocket } from 'ws'
-import { createCollaboration } from '../src/session-server.js'
+import { createCollaboration } from '../src/session-server.ts'
 
 export async function fixture(options) {
   const collaboration = createCollaboration(options)

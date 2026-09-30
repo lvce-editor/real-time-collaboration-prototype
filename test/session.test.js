@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as Y from 'yjs'
 import { fixture, client } from './helpers.js'
-import { encode, decode } from '../src/session-server.js'
+import { encode, decode } from '../src/session-server.ts'
 
 async function setup(t, options) {
   const f = await fixture(options); t.after(f.close)
