@@ -1,5 +1,7 @@
 import { fork } from 'node:child_process'
-import { writeFile } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
+import { dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import os from 'node:os'
 const levels = process.argv.slice(2).map(Number)
 const results = []
@@ -18,4 +20,6 @@ for (const count of levels.length ? levels : [10, 100, 1000, 10000]) {
   console.log(JSON.stringify(result))
 }
 const report = { date: new Date().toISOString(), node: process.version, platform: `${os.platform()} ${os.release()} ${os.arch()}`, cpu: os.cpus()[0]?.model, workload: 'Real loopback WebSockets, one project, all clients receive presence, up to ten concurrent CRDT writers; not full editor/browser clients. 45 s deadline and 768 MiB JS heap per scenario.', results }
-await writeFile('benchmark/results.json', JSON.stringify(report, null, 2) + '\n')
+const output = fileURLToPath(new URL('../../benchmark/results.json', import.meta.url))
+await mkdir(dirname(output), { recursive: true })
+await writeFile(output, JSON.stringify(report, null, 2) + '\n')

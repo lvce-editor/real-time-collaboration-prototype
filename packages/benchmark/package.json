@@ -1,0 +1,14 @@
+{
+  "name": "benchmark",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "benchmark": "node run.js"
+  },
+  "dependencies": {
+    "@lvce-editor/real-time-collaboration": "0.1.0",
+    "ws": "8.22.0",
+    "yjs": "13.6.33"
+  }
+}

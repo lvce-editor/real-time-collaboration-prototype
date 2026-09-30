@@ -21,6 +21,8 @@ For another machine on a trusted network, run `HOST=0.0.0.0 npm start` and open 
 
 This is a **dedicated collaboration workbench view hosted by `@lvce-editor/server`**, with a transport worker and a CodeMirror/Yjs collaborative editor. It is **not yet an LVCE native-editor extension**. The inspected extension API has no document-change subscription, so pretending an extension alone provided that integration would hide the main design gap. The local postinstall patch installs two HTTP/WebSocket hooks in the pinned server. It does not modify any upstream checkout or expose local files. The output channel and its verbosity setting belong to this prototype view rather than LVCE's native Output panel.
 
+The npm workspace packages separate collaboration code and protocol tests (`packages/collaboration`), the LVCE server integration (`packages/server`), browser tests (`packages/e2e`), build scripts (`packages/build`), and load benchmarks (`packages/benchmark`). Root scripts keep the common commands available from the repository root.
+
 This boundary allows evaluating collaboration semantics before adapting LVCE's editor-worker edit and decoration APIs. See [architecture and limitations](docs/architecture.md). The transport worker exposes connect/send/disconnect, with WebSocket as the working adapter; WebRTC/WebTransport are future adapters, not implemented transports.
 
 ## Verification
