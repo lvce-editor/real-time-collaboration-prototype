@@ -202,7 +202,7 @@ test('typing after remote updates supports native newline and local undo', async
     await expect(editor(p.guest)).toContainText('SECOND')
     await p.host.keyboard.press('Enter')
     await p.host.keyboard.insertText('new line')
-    await expect(p.guest.locator('.EditorRow')).toContainText(['new line'])
+    await expect(p.guest.locator('.EditorRow').last()).toHaveText('new line')
     await p.host.keyboard.press('ControlOrMeta+z')
     await expect(editor(p.guest)).not.toContainText('new line')
     await expect(editor(p.guest)).toContainText('GUEST')

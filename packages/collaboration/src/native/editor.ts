@@ -52,6 +52,7 @@ export class NativeEditor {
     this.syntaxRpc = syntax.rpc
     const editor = await launchWorker('/editorWorkerMain.js', {
       'Main.handleModifiedStatusChange': () => undefined,
+      'Languages.getLanguageConfiguration': () => ({}),
       'SendMessagePortToSyntaxHighlightingWorker.sendMessagePortToSyntaxHighlightingWorker': (port: MessagePort, command: string) => this.syntaxRpc.invokeAndTransfer(command, port),
     })
     this.worker = editor.worker
