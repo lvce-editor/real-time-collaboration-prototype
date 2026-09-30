@@ -18,7 +18,7 @@ Output retains 300 lines. Trace reports message types, cursor/permission metadat
 
 ## LVCE integration seam
 
-`src/server.js` installs handlers then launches pinned `@lvce-editor/server`. `scripts/patch-server.js` adds two delegation hooks and fails if the expected server source changes. Dependencies and lockfile are pinned. A clean install and repeated patching are covered in CI. No upstream packages are edited or released.
+`src/server.ts` installs handlers then launches pinned `@lvce-editor/server`. `scripts/patch-server.js` adds two delegation hooks and fails if the expected server source changes. Dependencies and lockfile are pinned. A clean install and repeated patching are covered in CI. No upstream packages are edited or released.
 
 The dedicated view uses CodeMirror for its existing Yjs binding and cursor decorations. It deliberately does not load the ordinary LVCE renderer: doing so would require a permission-aware filesystem/editor bridge before sharing with guests. Native editor integration should keep this server authority and transport seam, replace the view with LVCE editor-worker document/selection adapters, and expose the channel through LVCE's output API. These are explicit follow-up seams, not features supplied by this repository.
 

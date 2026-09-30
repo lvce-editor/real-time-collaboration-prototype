@@ -1,35 +1,57 @@
 import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { WebSocketServer, WebSocket } from 'ws'
+import type { IncomingMessage, ServerResponse } from 'node:http'
+import type { Duplex } from 'node:stream'
 import * as Y from 'yjs'
 
-export const encode = (data) => Buffer.from(data).toString('base64')
-export const decode = (data) => {
+type Role = 'host' | 'reader' | 'writer'
+type Credentials = { session: string; token: string; id: string }
+type RelativePositionJSON = ReturnType<typeof Y.relativePositionToJSON>
+type CursorPosition = { anchor: RelativePositionJSON; head: RelativePositionJSON }
+type ClientMessage =
+  | { type: 'hello'; session: string; token: string }
+  | { type: 'update'; update: string; sequence: number }
+  | { type: 'request-write' }
+  | { type: 'permission'; id: string; role: 'reader' | 'writer' }
+  | { type: 'cursor'; file: string; cursor: CursorPosition }
+  | { type: 'ping' }
+type ServerMessage = Record<string, unknown> & { type: string }
+type Participant = { id: string; token: string; name: string; role: Role; color: string; requested: boolean; socket?: WebSocket }
+type Session = { id: string; doc: Y.Doc; files: string[]; members: Map<string, Participant>; touched: number }
+type CreateOptions = { idleMs?: number; maxMembers?: number; maxSessions?: number }
+
+declare module 'ws' {
+  interface WebSocket { alive?: boolean }
+}
+
+export const encode = (data: Uint8Array): string => Buffer.from(data).toString('base64')
+export const decode = (data: unknown): Uint8Array => {
   if (typeof data !== 'string' || data.length > 1_400_000) throw new Error('Invalid update')
   return new Uint8Array(Buffer.from(data, 'base64'))
 }
 const colors = ['#d32f2f', '#1976d2', '#7b1fa2', '#00875a', '#b05b00', '#007c91']
-const publicMember = (p) => ({ id: p.id, name: p.name, role: p.role, color: p.color, online: !!p.socket, requested: p.requested })
-const send = (socket, message) => {
+const publicMember = (p: Participant) => ({ id: p.id, name: p.name, role: p.role, color: p.color, online: !!p.socket, requested: p.requested })
+const send = (socket: WebSocket | undefined, message: ServerMessage): void => {
   if (socket?.readyState !== WebSocket.OPEN) return
   if (socket.bufferedAmount > 2_000_000) return socket.close(1013, 'Slow consumer; reconnect for snapshot')
   socket.send(JSON.stringify(message))
 }
-export function createCollaboration({ idleMs = 30 * 60_000, maxMembers = 10_001, maxSessions = 100 } = {}) {
-  const sessions = new Map()
+export function createCollaboration({ idleMs = 30 * 60_000, maxMembers = 10_001, maxSessions = 100 }: CreateOptions = {}) {
+  const sessions = new Map<string, Session>()
   const wss = new WebSocketServer({ noServer: true, maxPayload: 1_400_000 })
-  const broadcast = (session, message, except) => {
+  const broadcast = (session: Session, message: ServerMessage, except?: WebSocket): void => {
     for (const p of session.members.values()) if (p.socket !== except) send(p.socket, message)
   }
-  const member = (session, name, role) => {
+  const member = (session: Session, name: unknown, role: Role): Participant => {
     if (session.members.size >= maxMembers) throw new Error('Session participant limit reached')
     const p = { id: randomUUID(), token: randomUUID(), name: String(name || 'Guest').slice(0, 60), role, color: colors[session.members.size % colors.length], requested: false }
     session.members.set(p.token, p)
     session.touched = Date.now()
     return p
   }
-  const credentials = (session, p) => ({ session: session.id, token: p.token, id: p.id })
-  const create = (name, files = { 'README.md': '# Shared project\n\nEdit together.\n', 'src/main.js': 'console.log("Hello collaborators")\n' }) => {
+  const credentials = (session: Session, p: Participant): Credentials => ({ session: session.id, token: p.token, id: p.id })
+  const create = (name: unknown, files: Record<string, string> = { 'README.md': '# Shared project\n\nEdit together.\n', 'src/main.js': 'console.log("Hello collaborators")\n' }): Credentials => {
     if (sessions.size >= maxSessions) throw new Error('Server session limit reached')
     if (!files || typeof files !== 'object' || Array.isArray(files)) throw new Error('Invalid project')
     const entries = Object.entries(files)
@@ -39,12 +61,12 @@ export function createCollaboration({ idleMs = 30 * 60_000, maxMembers = 10_001,
       if (!/^[\w. -]+(?:\/[\w. -]+)*$/.test(path) || path.split('/').some(x => x === '..' || x === '.') || path.length > 200 || typeof text !== 'string') throw new Error('Invalid text file')
       doc.getText(path).insert(0, text)
     }
-    const session = { id: randomUUID(), doc, files: entries.map(([path]) => path), members: new Map(), touched: Date.now() }
+    const session: Session = { id: randomUUID(), doc, files: entries.map(([path]) => path), members: new Map(), touched: Date.now() }
     const host = member(session, name || 'Host', 'host')
     sessions.set(session.id, session)
     return credentials(session, host)
   }
-  const join = (id, name) => {
+  const join = (id: string, name: unknown): Credentials => {
     const session = sessions.get(id)
     if (!session) throw new Error('Session unavailable or expired')
     return credentials(session, member(session, name, 'reader'))
@@ -59,16 +81,19 @@ export function createCollaboration({ idleMs = 30 * 60_000, maxMembers = 10_001,
   wss.on('connection', (socket) => {
     socket.alive = true
     socket.on('pong', () => { socket.alive = true })
-    let session, participant
+    let session: Session | undefined, participant: Participant | undefined
     const timeout = setTimeout(() => socket.close(1008, 'Authentication timeout'), 5000)
     socket.on('error', () => {})
     socket.on('message', (raw) => {
       try {
-        const message = JSON.parse(raw.toString())
+        const message = JSON.parse(raw.toString()) as ClientMessage
         if (!participant) {
           if (message.type !== 'hello') throw new Error('Authenticate first')
-          session = sessions.get(message.session)
-          participant = session?.members.get(message.token)
+          const authenticatedSession = message.session ? sessions.get(message.session) : undefined
+          const authenticatedParticipant = authenticatedSession?.members.get(message.token ?? '')
+          if (!authenticatedSession || !authenticatedParticipant) throw new Error('Invalid credentials')
+          session = authenticatedSession
+          participant = authenticatedParticipant
           if (!participant) throw new Error('Invalid credentials')
           clearTimeout(timeout)
           const previous = participant.socket
@@ -80,6 +105,7 @@ export function createCollaboration({ idleMs = 30 * 60_000, maxMembers = 10_001,
           return
         }
         if (participant.socket !== socket) throw new Error('Connection replaced')
+        if (!session) throw new Error('Session unavailable')
         session.touched = Date.now()
         switch (message.type) {
           case 'update': {
@@ -106,21 +132,21 @@ export function createCollaboration({ idleMs = 30 * 60_000, maxMembers = 10_001,
           case 'permission': {
             if (participant.role !== 'host') throw new Error('Host approval required')
             const target = [...session.members.values()].find(p => p.id === message.id)
-            if (!target || target.role === 'host' || !['reader', 'writer'].includes(message.role)) throw new Error('Invalid permission change')
+            if (!target || target.role === 'host' || (message.role !== 'reader' && message.role !== 'writer')) throw new Error('Invalid permission change')
             target.role = message.role
             target.requested = false
             broadcast(session, { type: 'member', member: publicMember(target) })
             break
           }
           case 'cursor':
-            if (!session.files.includes(message.file) || JSON.stringify(message.cursor).length > 2000) throw new Error('Invalid cursor')
+            if (typeof message.file !== 'string' || !session.files.includes(message.file) || JSON.stringify(message.cursor).length > 2000) throw new Error('Invalid cursor')
             broadcast(session, { type: 'cursor', id: participant.id, file: message.file, cursor: message.cursor }, socket)
             break
           case 'ping': send(socket, { type: 'pong' }); break
           default: throw new Error('Unknown message')
         }
       } catch (error) {
-        send(socket, { type: 'error', message: error.message })
+        send(socket, { type: 'error', message: error instanceof Error ? error.message : String(error) })
         // Force a fresh authoritative snapshot after rejected edits.
         if (participant) socket.close(1008, 'Rejected operation')
         else socket.close(1008, 'Authentication failed')
@@ -128,7 +154,7 @@ export function createCollaboration({ idleMs = 30 * 60_000, maxMembers = 10_001,
     })
     socket.on('close', () => {
       clearTimeout(timeout)
-      if (participant?.socket !== socket) return
+      if (participant?.socket !== socket || !session) return
       participant.socket = undefined
       session.touched = Date.now()
       broadcast(session, { type: 'member', member: publicMember(participant) })
@@ -143,13 +169,13 @@ export function createCollaboration({ idleMs = 30 * 60_000, maxMembers = 10_001,
     }
   }, Math.min(idleMs, 60_000))
   sweep.unref()
-  const assets = { '/': ['index.html', 'text/html'], '/client.js': ['client.js', 'text/javascript'], '/transport-worker.js': ['transport-worker.js', 'text/javascript'], '/style.css': ['style.css', 'text/css'] }
-  const request = async (req, res) => {
+  const assets: Record<string, [string, string]> = { '/': ['index.html', 'text/html'], '/client.js': ['client.js', 'text/javascript'], '/transport-worker.js': ['transport-worker.js', 'text/javascript'], '/style.css': ['style.css', 'text/css'] }
+  const request = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     try {
       res.setHeader('X-Content-Type-Options', 'nosniff')
       res.setHeader('Referrer-Policy', 'no-referrer')
       res.setHeader('Cache-Control', 'no-store')
-      const path = new URL(req.url, 'http://localhost').pathname
+      const path = new URL(req.url ?? '/', 'http://localhost').pathname
       if (req.method === 'POST' && ['/api/create', '/api/join'].includes(path)) {
         if (req.headers.origin && req.headers.origin !== `http://${req.headers.host}` && req.headers.origin !== `https://${req.headers.host}`) throw new Error('Origin rejected')
         let body = ''
@@ -157,8 +183,8 @@ export function createCollaboration({ idleMs = 30 * 60_000, maxMembers = 10_001,
           body += chunk
           if (body.length > 600_000) throw new Error('Request too large')
         }
-        const input = JSON.parse(body)
-        const result = path === '/api/create' ? create(input.name, input.files) : join(input.session, input.name)
+        const input = JSON.parse(body) as { name?: unknown; files?: Record<string, string>; session?: string }
+        const result = path === '/api/create' ? create(input.name, input.files) : join(input.session ?? '', input.name)
         res.setHeader('Content-Type', 'application/json')
         res.end(JSON.stringify(result))
       } else if (req.method === 'GET' && assets[path]) {
@@ -171,12 +197,12 @@ export function createCollaboration({ idleMs = 30 * 60_000, maxMembers = 10_001,
       }
     } catch (error) {
       res.statusCode = 400
-      res.end(JSON.stringify({ error: error.message }))
+      res.end(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }))
     }
   }
-  const upgrade = (req, socket, head) => {
+  const upgrade = (req: IncomingMessage, socket: Duplex, head: Buffer): void => {
     const origin = req.headers.origin
-    if (req.url !== '/collaboration' || (origin && origin !== `http://${req.headers.host}` && origin !== `https://${req.headers.host}`)) return socket.destroy()
+    if (req.url !== '/collaboration' || (origin && origin !== `http://${req.headers.host}` && origin !== `https://${req.headers.host}`)) { socket.destroy(); return }
     wss.handleUpgrade(req, socket, head, ws => wss.emit('connection', ws, req))
   }
   const close = async () => {

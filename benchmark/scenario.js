@@ -2,7 +2,7 @@ import { performance } from 'node:perf_hooks'
 import { WebSocket } from 'ws'
 import * as Y from 'yjs'
 import { fixture } from '../test/helpers.js'
-import { encode, decode } from '../src/session-server.js'
+import { encode, decode } from '../src/session-server.ts'
 const count = Number(process.argv[2]), started = performance.now()
 const f = await fixture()
 const credentials = f.create('Host', { 'benchmark.txt': '' })

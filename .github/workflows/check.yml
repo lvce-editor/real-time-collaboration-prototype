@@ -21,6 +21,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+      - name: Typecheck
+        run: npm run typecheck
       - run: npm test
       - run: node scripts/patch-server.js
   browser:
