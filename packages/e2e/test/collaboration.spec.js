@@ -47,6 +47,8 @@ test('concurrent editors keep both contributions and converge', async ({ browser
 })
 test('published collaboration demo shows shared edits and a remote cursor', async ({ browser }) => {
   const videoDir = process.env.DEMO_VIDEO_DIR
+    ? resolve(process.env.GITHUB_WORKSPACE ?? process.cwd(), process.env.DEMO_VIDEO_DIR)
+    : undefined
   if (videoDir) await mkdir(videoDir, { recursive: true })
   const hostContext = await browser.newContext(videoDir ? { recordVideo: { dir: videoDir, size: { width: 1280, height: 720 } } } : {})
   const guestContext = await browser.newContext(videoDir ? { recordVideo: { dir: videoDir, size: { width: 1280, height: 720 } } } : {})
