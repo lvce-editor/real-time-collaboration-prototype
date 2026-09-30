@@ -42,7 +42,7 @@ jobs:
         if: failure()
         with:
           name: browser-results
-          path: test-results/
+          path: packages/e2e/test-results/
   benchmark:
     name: Protocol benchmarks
     runs-on: ubuntu-latest

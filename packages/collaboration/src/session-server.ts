@@ -60,7 +60,7 @@ export function createCollaboration({ idleMs = 30 * 60_000, maxMembers = 10_001,
     const doc = new Y.Doc()
     for (const [path, text] of entries) {
       if (!/^[\w. -]+(?:\/[\w. -]+)*$/.test(path) || path.split('/').some(x => x === '..' || x === '.') || path.length > 200 || typeof text !== 'string') throw new Error('Invalid text file')
-      doc.getText(path).insert(0, text)
+      doc.getText(path).insert(0, text.replace(/\r\n?/g, '\n'))
     }
     const session: Session = { id: randomUUID(), doc, files: entries.map(([path]) => path), members: new Map(), touched: Date.now() }
     const host = member(session, name || 'Host', 'host')
@@ -170,7 +170,7 @@ export function createCollaboration({ idleMs = 30 * 60_000, maxMembers = 10_001,
     }
   }, Math.min(idleMs, 60_000))
   sweep.unref()
-  const assets: Record<string, [string, string]> = { '/': ['index.html', 'text/html'], '/client.js': ['client.js', 'text/javascript'], '/transport-worker.js': ['transport-worker.js', 'text/javascript'], '/style.css': ['style.css', 'text/css'] }
+  const assets: Record<string, [string, string]> = { '/syntaxHighlightingWorkerMain.js': ['syntaxHighlightingWorkerMain.js', 'text/javascript'], '/editorWorkerMain.js': ['editorWorkerMain.js', 'text/javascript'], '/native.css': ['native.css', 'text/css'], '/': ['index.html', 'text/html'], '/client.js': ['client.js', 'text/javascript'], '/transport-worker.js': ['transport-worker.js', 'text/javascript'], '/style.css': ['style.css', 'text/css'] }
   const request = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     try {
       res.setHeader('X-Content-Type-Options', 'nosniff')

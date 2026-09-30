@@ -15,18 +15,18 @@ async function grant(host, guest) {
   await host.getByRole('button', { name: 'Allow Guest' }).click()
   await expect(guest.locator('#permission')).toHaveText('Write access')
 }
-const editor = page => page.locator('.cm-content')
-async function append(page, text) { await editor(page).click(); await page.keyboard.press('ControlOrMeta+End'); await page.keyboard.insertText(text) }
+const editor = page => page.locator('#editor')
+async function append(page, text) { await expect(editor(page)).toHaveAttribute('data-ready', 'true'); await editor(page).click(); await expect(page.getByRole('textbox', { name: 'LVCE editor input' })).toBeFocused(); await page.keyboard.press('ControlOrMeta+End'); await page.keyboard.insertText(text) }
 
 test('invitations, read-only guest, approval, propagation and revocation', async ({ browser }) => {
   const p = await pair(browser)
   try {
-    await expect(editor(p.guest)).toHaveAttribute('contenteditable', 'false')
+    await expect(editor(p.guest)).toHaveAttribute('data-readonly', 'true')
     await grant(p.host, p.guest)
     await append(p.guest, 'Guest contribution')
     await expect(editor(p.host)).toContainText('Guest contribution')
     await p.host.getByRole('button', { name: 'Revoke Guest' }).click()
-    await expect(editor(p.guest)).toHaveAttribute('contenteditable', 'false')
+    await expect(editor(p.guest)).toHaveAttribute('data-readonly', 'true')
   } finally { await p.close() }
 })
 test('concurrent editors keep both contributions and converge', async ({ browser }) => {
@@ -38,7 +38,7 @@ test('concurrent editors keep both contributions and converge', async ({ browser
     const documentText = page => editor(page).evaluate(element => {
       const copy = element.cloneNode(true)
       copy.querySelectorAll('.remote-cursor').forEach(cursor => cursor.remove())
-      return [...copy.querySelectorAll('.cm-line')].map(line => line.textContent).join('\n')
+      return [...copy.querySelectorAll('.EditorRow')].map(line => line.textContent).join('\n')
     })
     await expect.poll(async () => (await documentText(p.host)) === (await documentText(p.guest))).toBe(true)
   } finally { await p.close() }
@@ -122,4 +122,90 @@ test('host imports a text folder and downloads its edited contents', async ({ pa
   const download = await downloadPromise
   expect(download.suggestedFilename()).toBe('hello.js')
   expect(await readFile(await download.path(), 'utf8')).toContain('// downloaded')
+})
+
+test('native selection deletion converges with a concurrent insert', async ({ browser }) => {
+  const p = await pair(browser)
+  try {
+    await grant(p.host, p.guest)
+    await editor(p.guest).click()
+    await expect(p.guest.getByRole('textbox', { name: 'LVCE editor input' })).toBeFocused()
+    await p.guest.keyboard.press('ControlOrMeta+Home')
+    await p.guest.keyboard.press('Shift+ArrowRight')
+    await p.guest.keyboard.press('Shift+ArrowRight')
+    await expect(p.host.locator('.remote-selection').first()).toHaveCSS('width', /[1-9]/)
+    await Promise.all([p.guest.keyboard.press('Backspace'), append(p.host, 'CONCURRENT')])
+    await expect(editor(p.host)).toContainText('CONCURRENT')
+    await expect(editor(p.guest)).toContainText('CONCURRENT')
+    await expect(p.host.locator('.EditorRow').first()).toHaveText('Shared project')
+    await expect(p.guest.locator('.EditorRow').first()).toHaveText('Shared project')
+  } finally { await p.close() }
+})
+
+test('file switches dispose native workers and retain one editable view', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Host project', exact: true }).click()
+  await expect(editor(page)).toHaveAttribute('data-ready', 'true')
+  const sheets = await page.evaluate(() => document.adoptedStyleSheets.length)
+  for (let i = 0; i < 4; i++) {
+    const file = i % 2 === 0 ? 'src/main.js' : 'README.md'
+    await page.getByRole('button', { name: file, exact: true }).click()
+    await expect(page.locator('#filename')).toHaveText(file)
+    await expect(editor(page)).toHaveAttribute('data-ready', 'true')
+    await expect(page.locator('.Editor')).toHaveCount(1)
+    await expect.poll(() => page.workers().length).toBe(3)
+    expect(await page.evaluate(() => document.adoptedStyleSheets.length)).toBe(sheets)
+  }
+  await append(page, 'after switching')
+  await expect(editor(page)).toContainText('after switching')
+  await expect(page.getByRole('log')).not.toContainText('Editor error')
+})
+
+test('rejected native edits are discarded on authoritative reconnect', async ({ browser }) => {
+  const p = await pair(browser)
+  try {
+    await grant(p.host, p.guest)
+    const transport = p.guest.workers().find(worker => worker.url().endsWith('/transport-worker.js'))
+    // Delay the revocation notification to reproduce a real in-flight write:
+    // the server has revoked access while this client still believes it can edit.
+    await transport.evaluate(() => {
+      const post = globalThis.postMessage.bind(globalThis)
+      globalThis.postMessage = data => {
+        if (data.type === 'message' && data.message.type === 'member' && data.message.member.role === 'reader') return
+        post(data)
+      }
+    })
+    await p.host.getByRole('button', { name: 'Revoke Guest' }).click()
+    await expect(p.host.getByRole('button', { name: 'Allow Guest' })).toBeVisible()
+    await append(p.guest, 'REJECTED')
+    await expect(p.guest.getByRole('log')).toContainText('Reconnected to authority')
+    await expect(editor(p.guest)).toHaveAttribute('data-ready', 'true')
+    await expect(editor(p.guest)).not.toContainText('REJECTED')
+    await expect(editor(p.host)).not.toContainText('REJECTED')
+    await expect(p.guest.locator('#permission')).toHaveText('Read-only')
+    await grant(p.host, p.guest)
+    await append(p.guest, 'ACCEPTED')
+    await expect(editor(p.host)).toContainText('ACCEPTED')
+    await expect(editor(p.host)).not.toContainText('REJECTED')
+  } finally { await p.close() }
+})
+
+test('typing after remote updates supports native newline and local undo', async ({ browser }) => {
+  const p = await pair(browser)
+  try {
+    await grant(p.host, p.guest)
+    await append(p.host, 'HOST')
+    await expect(editor(p.guest)).toContainText('HOST')
+    await append(p.guest, 'GUEST')
+    await expect(editor(p.host)).toContainText('GUEST')
+    await append(p.host, 'SECOND')
+    await expect(editor(p.guest)).toContainText('SECOND')
+    await p.host.keyboard.press('Enter')
+    await p.host.keyboard.insertText('new line')
+    await expect(p.guest.locator('.EditorRow').last()).toHaveText('new line')
+    await p.host.keyboard.press('ControlOrMeta+z')
+    await expect(editor(p.guest)).not.toContainText('new line')
+    await expect(editor(p.guest)).toContainText('GUEST')
+    await expect(p.host.getByRole('log')).not.toContainText('Editor error')
+  } finally { await p.close() }
 })

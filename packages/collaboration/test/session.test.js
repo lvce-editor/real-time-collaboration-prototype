@@ -163,3 +163,9 @@ test('participant capacity is explicit and does not mutate the session on failur
   assert.throws(() => f.join(host.session, 'Overflow'), /participant limit/)
   assert.equal(f.sessions.get(host.session).members.size, 2)
 })
+
+test('import normalizes line endings to the native editor document model', async t => {
+  const f = await fixture(); t.after(f.close)
+  const host = f.create('Host', { 'file.txt': 'a\r\nb\rc' })
+  assert.equal(f.sessions.get(host.session).doc.getText('file.txt').toString(), 'a\nb\nc')
+})

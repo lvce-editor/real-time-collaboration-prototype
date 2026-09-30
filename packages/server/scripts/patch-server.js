@@ -30,3 +30,5 @@ for (const [before, after] of patches) {
   source = source.replace(before, after)
 }
 await writeFile(url, source)
+
+await import('./patch-editor.js')
