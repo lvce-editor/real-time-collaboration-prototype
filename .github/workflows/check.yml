@@ -37,7 +37,16 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npx playwright install --with-deps chromium
-      - run: npm run test:e2e
+      - name: Run browser collaboration tests
+        env:
+          DEMO_VIDEO_DIR: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'site' || '' }}
+        run: npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && success()
+        with:
+          name: collaboration-demo
+          path: site/collaboration-demo.webm
+          if-no-files-found: error
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
@@ -60,3 +69,54 @@ jobs:
         with:
           name: protocol-benchmarks
           path: benchmark/results.json
+  report:
+    name: Benchmark report
+    needs: [benchmark, browser]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+      - uses: actions/download-artifact@v4
+        with:
+          name: protocol-benchmarks
+          path: benchmark
+      - uses: actions/download-artifact@v4
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with:
+          name: collaboration-demo
+          path: site
+      - name: Generate and validate report
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+          REQUIRE_DEMO_VIDEO: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'true' || 'false' }}
+        run: |
+          node scripts/generate-benchmark-report.js
+          node scripts/verify-benchmark-report.js
+      - name: Upload Pages artifact
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+  deploy:
+    name: Deploy benchmark report
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: report
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    concurrency:
+      group: github-pages
+      cancel-in-progress: true
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

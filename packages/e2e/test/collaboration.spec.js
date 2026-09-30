@@ -1,4 +1,6 @@
 import { test, expect } from '@playwright/test'
+import { mkdir, copyFile } from 'node:fs/promises'
+import { resolve } from 'node:path'
 async function pair(browser) {
   const hc = await browser.newContext(), gc = await browser.newContext()
   const host = await hc.newPage(), guest = await gc.newPage()
@@ -42,6 +44,39 @@ test('concurrent editors keep both contributions and converge', async ({ browser
     })
     await expect.poll(async () => (await documentText(p.host)) === (await documentText(p.guest))).toBe(true)
   } finally { await p.close() }
+})
+test('published collaboration demo shows shared edits and a remote cursor', async ({ browser }) => {
+  const videoDir = process.env.DEMO_VIDEO_DIR
+  if (videoDir) await mkdir(videoDir, { recursive: true })
+  const hostContext = await browser.newContext(videoDir ? { recordVideo: { dir: videoDir, size: { width: 1280, height: 720 } } } : {})
+  const guestContext = await browser.newContext(videoDir ? { recordVideo: { dir: videoDir, size: { width: 1280, height: 720 } } } : {})
+  const host = await hostContext.newPage()
+  const guest = await guestContext.newPage()
+  let hostVideo
+  try {
+    await host.goto('/')
+    await host.getByLabel('Your name').fill('Host')
+    await host.getByRole('button', { name: 'Host project', exact: true }).click()
+    await expect(host.locator('#connection')).toHaveText('Connected')
+    const invitation = await host.getByLabel('Invite link').inputValue()
+    await guest.goto(invitation)
+    await guest.getByLabel('Your name').fill('Guest')
+    await guest.getByRole('button', { name: 'Join project' }).click()
+    await expect(guest.locator('#connection')).toHaveText('Connected')
+    await grant(host, guest)
+    await append(host, 'Hello from the host. ')
+    await append(guest, 'The guest is editing too.')
+    await expect(editor(host)).toContainText('The guest is editing too.')
+    await editor(guest).click()
+    await guest.keyboard.press('ControlOrMeta+End')
+    await expect(host.locator('.remote-cursor-label')).toHaveText('Guest')
+    await expect(host.locator('.remote-cursor')).toBeVisible()
+    if (videoDir) hostVideo = host.video()
+  } finally {
+    await guestContext.close()
+    await hostContext.close()
+  }
+  if (videoDir && hostVideo) await copyFile(await hostVideo.path(), resolve(videoDir, 'collaboration-demo.webm'))
 })
 test('project files remain separate and synchronize to a late joiner', async ({ browser }) => {
   const p = await pair(browser)

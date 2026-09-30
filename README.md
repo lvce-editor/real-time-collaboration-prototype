@@ -38,3 +38,7 @@ npm run benchmark
 CI runs protocol tests on Linux, macOS, and Windows, plus isolated Chromium multi-client e2e tests. `npm ci` reapplies idempotent, fail-closed server and editor patches. Browser tests launch the actual patched LVCE server. The benchmark uses real loopback WebSockets and Yjs documents, not full browser/editor instances. It attempts 10, 100, 1,000 and 10,000 participants with a 45-second deadline and 768 MiB JS heap per level. Optional positional arguments select levels, e.g. `npm run benchmark -- 10 100`.
 
 See [recorded measurements](docs/benchmark-results.json). The initial 10,000-user attempt hit the setup deadline at 1,803 connected users; this prototype does not claim 10,000-user capacity. Presence join fan-out is quadratic and is the next scaling boundary to investigate. Measurements include the server and simulated clients in one process and are not production capacity estimates.
+
+## Published benchmark report
+
+Successful runs on `main` publish the benchmark report and a browser recording to [GitHub Pages](https://lvce-editor.github.io/real-time-collaboration-prototype/). The report includes the commit and workflow run that produced its downloadable JSON. A failed or capacity-limited benchmark level remains visible with its observed outcome and reason. Pull request runs build and validate the static report without publishing it.
