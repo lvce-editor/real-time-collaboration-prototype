@@ -39,7 +39,7 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - name: Run browser collaboration tests
         env:
-          DEMO_VIDEO_DIR: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'site' || '' }}
+          DEMO_VIDEO_DIR: site
         run: npm run test:e2e
       - uses: actions/upload-artifact@v4
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && success()
