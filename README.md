@@ -4,7 +4,7 @@ A runnable LVCE server experiment: host a text project, share an invitation URL 
 
 ## Run
 
-Requires Node.js 24 and npm.
+Requires Node.js 26 and npm.
 
 ```sh
 npm ci
