@@ -3,3 +3,4 @@ dist/
 test-results/
 playwright-report/
 benchmark/results*.json
+docs/benchmark-results.json
