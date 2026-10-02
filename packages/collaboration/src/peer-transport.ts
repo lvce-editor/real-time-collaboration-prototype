@@ -48,7 +48,7 @@ export class PeerTransport {
     peer.queued++
     peer.queue = peer.queue.then(async () => {
       if (this.peers.get(id) === peer) await action()
-    }).catch(() => { peer.connection.close(); this.log('WebRTC unavailable; using server transport') }).finally(() => { peer.queued-- })
+    }).catch(error => { peer.connection.close(); this.log(`WebRTC unavailable; using server transport (${error instanceof Error ? error.name : 'Unknown error'})`) }).finally(() => { peer.queued-- })
   }
   private async describe(id: string, peer: Peer): Promise<void> {
     const connection = peer.connection
@@ -68,7 +68,8 @@ export class PeerTransport {
       connection.addEventListener('connectionstatechange', check)
       check()
     })
-    if (this.peers.get(id) === peer) this.signal({ type: 'signal', to: id, description: connection.localDescription })
+    // Native RTCSessionDescription objects cannot cross the worker structured-clone boundary.
+    if (this.peers.get(id) === peer) this.signal({ type: 'signal', to: id, description: connection.localDescription?.toJSON() })
   }
   accept(from: string, description: RTCSessionDescriptionInit): void {
     const peer = this.peers.get(from)
