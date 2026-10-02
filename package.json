@@ -7,7 +7,7 @@
     "packages/*"
   ],
   "scripts": {
-    "postinstall": "node packages/server/scripts/patch-server.js",
+    "postinstall": "node packages/server/scripts/patch-server.ts",
     "build": "npm run build --workspace=packages/build",
     "start": "node packages/server/src/server.ts",
     "test": "npm test --workspace=packages/collaboration",

@@ -4,7 +4,11 @@ import { resolve } from 'node:path'
 const htmlPath = resolve('site/index.html')
 const jsonPath = resolve('site/benchmark-results.json')
 const html = await readFile(htmlPath, 'utf8')
-const report = JSON.parse(await readFile(jsonPath, 'utf8'))
+type PublishedReport = {
+  provenance?: { repository?: string; commit?: string; workflowRun?: string | null }
+  results?: Array<{ count: number; status: string; reason?: string }>
+}
+const report = JSON.parse(await readFile(jsonPath, 'utf8')) as PublishedReport
 const expectedLevels = [10, 100, 1000, 10000]
 for (const fragment of ['href="./benchmark-results.json"', 'src="./collaboration-demo.webm"', 'Real-time collaboration benchmarks', 'Failed and capacity-limited levels are shown']) {
   if (!html.includes(fragment)) throw new Error(`Generated report is missing ${fragment}`)
@@ -16,7 +20,8 @@ if (!report.provenance?.repository || !report.provenance?.commit || !('workflowR
   throw new Error('Published JSON is missing workflow provenance')
 }
 for (const result of report.results) {
-  const safeReason = String(result.reason ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char])
+  const entities: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }
+  const safeReason = String(result.reason ?? '').replace(/[&<>"']/g, char => entities[char] ?? char)
   if (result.status !== 'passed' && !result.reason) throw new Error(`Failed ${result.count}-participant result has no failure reason`)
   if (result.status !== 'passed' && !html.includes(safeReason)) {
     throw new Error(`Failure reason for ${result.count} participants is not visible in the report`)
