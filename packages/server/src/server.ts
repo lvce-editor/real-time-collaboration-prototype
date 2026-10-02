@@ -5,6 +5,6 @@ declare global {
   var lvceCollaboration: ReturnType<typeof createCollaboration> | undefined
 }
 
-globalThis.lvceCollaboration = createCollaboration()
+globalThis.lvceCollaboration = createCollaboration({ development: process.argv.includes('--dev') })
 process.env.HOST ||= '127.0.0.1'
 await import('@lvce-editor/server/bin/server.js')
