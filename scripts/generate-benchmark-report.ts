@@ -110,7 +110,7 @@ const html = `<!doctype html>
   </section>
   <section class="demo" aria-labelledby="demo-title">
     <h2 id="demo-title">Collaboration in action</h2>
-    <p>The browser demo shows two participants editing together and the remote participant cursor.</p>
+    <p>The browser demo shows four participants contributing edits together for at least one minute, with the remote participants’ cursors visible.</p>
     <video controls preload="metadata" poster="">
       <source src="./collaboration-demo.webm" type="video/webm">
       Your browser cannot play this collaboration recording.
