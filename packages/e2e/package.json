@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "playwright test --config=playwright.config.js"
+    "test": "playwright test --config=playwright.config.ts"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0"

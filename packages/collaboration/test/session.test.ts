@@ -1,10 +1,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as Y from 'yjs'
-import { fixture, client } from './helpers.js'
+import { fixture, client } from './helpers.ts'
 import { encode, decode } from '../src/session-server.ts'
 
-async function setup(t, options) {
+async function setup(t, options = {}) {
   const f = await fixture(options); t.after(f.close)
   const host = f.create('Host', { 'main.js': 'abc', 'other.txt': 'other' })
   const guest = f.join(host.session, 'Guest')
@@ -152,7 +152,7 @@ test('connection replacement does not mark the new participant offline', async t
   const { h, g, guest, f } = await setup(t)
   const replacement = await client(f.url, guest)
   await replacement.wait('snapshot')
-  await new Promise(resolve => g.socket.readyState === 3 ? resolve() : g.socket.once('close', resolve))
+  await new Promise<void>(resolve => g.socket.readyState === 3 ? resolve() : g.socket.once('close', resolve))
   replacement.send({ type: 'request-write' })
   const change = await h.wait(m => m.type === 'member' && m.member.requested)
   assert.equal(change.member.online, true)

@@ -7,7 +7,7 @@ import * as Y from 'yjs'
 import { fileURLToPath } from 'node:url'
 
 type Role = 'host' | 'reader' | 'writer'
-type Credentials = { session: string; token: string; id: string }
+export type Credentials = { session: string; token: string; id: string }
 type RelativePositionJSON = ReturnType<typeof Y.relativePositionToJSON>
 type CursorPosition = { anchor: RelativePositionJSON; head: RelativePositionJSON }
 type ClientMessage =
@@ -20,7 +20,7 @@ type ClientMessage =
 type ServerMessage = Record<string, unknown> & { type: string }
 type Participant = { id: string; token: string; name: string; role: Role; color: string; requested: boolean; socket?: WebSocket }
 type Session = { id: string; doc: Y.Doc; files: string[]; members: Map<string, Participant>; touched: number }
-type CreateOptions = { idleMs?: number; maxMembers?: number; maxSessions?: number }
+export type CreateOptions = { idleMs?: number; maxMembers?: number; maxSessions?: number }
 
 declare module 'ws' {
   interface WebSocket { alive?: boolean }

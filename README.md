@@ -4,7 +4,7 @@ A runnable LVCE server experiment: host a text project, share an invitation URL 
 
 ## Run
 
-Requires Node.js 26 and npm. Runtime modules are TypeScript; Node.js 26 runs the server directly with built-in type stripping, and esbuild bundles the browser modules.
+Requires Node.js 26 and npm. Maintained executable source, tooling, protocol tests, browser tests, and benchmarks use TypeScript. Node.js 26 runs the TypeScript entry points directly with built-in type stripping, and esbuild bundles the browser modules. The JavaScript fixture remains sample project data, and the patch fragment remains JavaScript because it is injected into the pinned upstream editor bundle.
 
 ```sh
 npm ci

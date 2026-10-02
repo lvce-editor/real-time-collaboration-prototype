@@ -1,4 +1,4 @@
-export function patchEditorSource(source, version, patch) {
+export function patchEditorSource(source: string, version: string, patch: string): string {
   if (version !== '19.60.2') throw new Error(`Unsupported LVCE editor-worker: ${version}`)
   const hook = 'const commandMap = {'
   const replacement = `${patch}\n${hook}\n  'Collaboration.snapshot': collaborationSnapshot,\n  'Collaboration.state': collaborationState,`

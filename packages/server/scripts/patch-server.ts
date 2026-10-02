@@ -31,4 +31,4 @@ for (const [before, after] of patches) {
 }
 await writeFile(url, source)
 
-await import('./patch-editor.js')
+await import('./patch-editor.ts')

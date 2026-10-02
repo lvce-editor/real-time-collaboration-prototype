@@ -1,7 +1,7 @@
 import { readFile, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
-import { patchEditorSource } from './editor-patch.js'
+import { patchEditorSource } from './editor-patch.ts'
 
 const require = createRequire(new URL('../../collaboration/package.json', import.meta.url))
 const root = dirname(require.resolve('@lvce-editor/editor-worker/package.json'))
