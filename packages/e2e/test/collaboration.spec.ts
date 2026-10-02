@@ -45,37 +45,63 @@ test('concurrent editors keep both contributions and converge', async ({ browser
     await expect.poll(async () => (await documentText(p.host)) === (await documentText(p.guest))).toBe(true)
   } finally { await p.close() }
 })
-test('published collaboration demo shows shared edits and a remote cursor', async ({ browser }) => {
+test('published collaboration demo shows four participants collaborating for one minute', async ({ browser }) => {
+  test.setTimeout(120_000)
   const videoDir = process.env.DEMO_VIDEO_DIR
     ? resolve(process.env.GITHUB_WORKSPACE ?? process.cwd(), process.env.DEMO_VIDEO_DIR)
     : undefined
   if (videoDir) await mkdir(videoDir, { recursive: true })
   const hostContext = await browser.newContext(videoDir ? { recordVideo: { dir: videoDir, size: { width: 1280, height: 720 } } } : {})
-  const guestContext = await browser.newContext(videoDir ? { recordVideo: { dir: videoDir, size: { width: 1280, height: 720 } } } : {})
-  const host = await hostContext.newPage()
-  const guest = await guestContext.newPage()
+  const guests = []
+  let host
   let hostVideo
   try {
+    host = await hostContext.newPage()
     await host.goto('/')
     await host.getByLabel('Your name').fill('Host')
     await host.getByRole('button', { name: 'Host project', exact: true }).click()
     await expect(host.locator('#connection')).toHaveText('Connected')
     const invitation = await host.getByLabel('Invite link').inputValue()
-    await guest.goto(invitation)
-    await guest.getByLabel('Your name').fill('Guest')
-    await guest.getByRole('button', { name: 'Join project' }).click()
-    await expect(guest.locator('#connection')).toHaveText('Connected')
-    await grant(host, guest)
-    await append(host, 'Hello from the host. ')
-    await append(guest, 'The guest is editing too.')
-    await expect(editor(host)).toContainText('The guest is editing too.')
-    await editor(guest).click()
-    await guest.keyboard.press('ControlOrMeta+End')
-    await expect(host.locator('.remote-cursor-label')).toHaveText('Guest')
-    await expect(host.locator('.remote-cursor')).toBeVisible()
+    for (const name of ['Guest One', 'Guest Two', 'Guest Three']) {
+      const context = await browser.newContext()
+      const guest = { context, page: await context.newPage(), name }
+      guests.push(guest)
+      await guest.page.goto(invitation)
+      await guest.page.getByLabel('Your name').fill(guest.name)
+      await guest.page.getByRole('button', { name: 'Join project' }).click()
+      await expect(guest.page.locator('#connection')).toHaveText('Connected')
+      await grant(host, guest.page)
+    }
+    await expect(host.locator('#members')).toContainText('Host')
+    for (const guest of guests) await expect(host.locator('#members')).toContainText(guest.name)
+    await append(host, 'Host: welcome to our shared session.\n')
+
+    // Keep the recorded session active for at least a minute, with each editor
+    // making readable edits throughout so the video demonstrates collaboration.
+    const sessionStarted = Date.now()
+    for (let round = 0; round < 12; round++) {
+      const guest = guests[round % guests.length]!
+      const contribution = `${guest.name} contribution ${round + 1}.\n`
+      await append(guest.page, contribution)
+      await expect(editor(host)).toContainText(contribution)
+      await guest.page.keyboard.press('ControlOrMeta+End')
+      await expect(host.getByText(guest.name, { exact: true }).and(host.locator('.remote-cursor-label'))).toBeVisible()
+      await expect(host.locator('.remote-cursor')).toHaveCount(3)
+      const elapsed = Date.now() - sessionStarted
+      await host.waitForTimeout(Math.max(0, 5_000 - (elapsed % 5_000)))
+    }
+    await append(host, 'Host: all four editors contributed.\n')
+    const documentText = page => editor(page).evaluate(element => {
+      const copy = element.cloneNode(true)
+      copy.querySelectorAll('.remote-cursor, .remote-selection').forEach(cursor => cursor.remove())
+      return [...copy.querySelectorAll('.EditorRow')].map(line => line.textContent).join('\n')
+    })
+    for (const guest of guests) {
+      await expect.poll(async () => (await documentText(host)) === (await documentText(guest.page))).toBe(true)
+    }
     if (videoDir) hostVideo = host.video()
   } finally {
-    await guestContext.close()
+    await Promise.all(guests.map(guest => guest.context.close()))
     await hostContext.close()
   }
   if (videoDir && hostVideo) await copyFile(await hostVideo.path(), resolve(videoDir, 'collaboration-demo.webm'))

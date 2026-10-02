@@ -10,7 +10,7 @@ type PublishedReport = {
 }
 const report = JSON.parse(await readFile(jsonPath, 'utf8')) as PublishedReport
 const expectedLevels = [10, 100, 1000, 10000]
-for (const fragment of ['href="./benchmark-results.json"', 'src="./collaboration-demo.webm"', 'Real-time collaboration benchmarks', 'Failed and capacity-limited levels are shown']) {
+for (const fragment of ['href="./benchmark-results.json"', 'src="./collaboration-demo.webm"', 'Real-time collaboration benchmarks', 'four participants contributing edits together for at least one minute', 'Failed and capacity-limited levels are shown']) {
   if (!html.includes(fragment)) throw new Error(`Generated report is missing ${fragment}`)
 }
 if (report.results?.length !== expectedLevels.length || report.results.some((result, index) => result.count !== expectedLevels[index])) {
