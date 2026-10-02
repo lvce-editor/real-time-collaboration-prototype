@@ -37,10 +37,14 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npx playwright install --with-deps chromium
+      - name: Install video validation tools
+        run: sudo apt-get update && sudo apt-get install --yes ffmpeg
       - name: Run browser collaboration tests
         env:
           DEMO_VIDEO_DIR: site
         run: npm run test:e2e
+      - name: Validate collaboration recording
+        run: node scripts/verify-collaboration-demo.ts
       - uses: actions/upload-artifact@v4
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && success()
         with:
