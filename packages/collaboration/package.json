@@ -5,11 +5,11 @@
   "type": "module",
   "exports": {
     "./server": "./src/session-server.ts",
-    "./testing": "./test/helpers.js"
+    "./testing": "./test/helpers.ts"
   },
   "scripts": {
-    "test": "node --test test/*.test.js",
-    "typecheck": "tsc --noEmit -p tsconfig.server.json && tsc --noEmit -p tsconfig.browser.json"
+    "test": "node --test test/*.test.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.server.json && tsc --noEmit -p tsconfig.browser.json && tsc --noEmit -p tsconfig.tools.json && tsc --noEmit -p tsconfig.tests.json"
   },
   "dependencies": {
     "ws": "8.22.0",

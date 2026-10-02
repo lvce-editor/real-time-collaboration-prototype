@@ -18,7 +18,7 @@ Output retains 300 lines. Trace reports message types, cursor/permission metadat
 
 ## LVCE integration seam
 
-`packages/server/src/server.ts` installs handlers then launches pinned `@lvce-editor/server`. `packages/server/scripts/patch-server.js` adds two delegation hooks and fails if the expected server source changes. Dependencies are assigned to their owning npm workspaces and pinned in the root lockfile. A clean install and repeated patching are covered in CI. No upstream packages are edited or released.
+`packages/server/src/server.ts` installs handlers then launches pinned `@lvce-editor/server`. `packages/server/scripts/patch-server.ts` adds two delegation hooks and fails if the expected server source changes. Dependencies are assigned to their owning npm workspaces and pinned in the root lockfile. A clean install and repeated patching are covered in CI. No upstream packages are edited or released.
 
 The collaboration shell renders the native LVCE editor through `@lvce-editor/editor-worker` and `@lvce-editor/virtual-dom`, with the native syntax worker. The editor-only render bridge is adapted from the LVCE typing benchmark. `packages/server/patches/editor-collaboration.js` adds worker commands for reading native state and applying authoritative text with mapped selections. The patch checks the exact package version and unique source anchors; reinstalling and repeated patch application are supported.
 

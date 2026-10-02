@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
-import { patchEditorSource } from '../../server/scripts/editor-patch.js'
+import { patchEditorSource } from '../../server/scripts/editor-patch.ts'
 
 test('installed native worker patch is repeatable and unsupported versions fail closed', async () => {
   const require = createRequire(import.meta.url)

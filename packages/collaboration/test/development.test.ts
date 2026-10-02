@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createPublicKey, verify } from 'node:crypto'
 import * as Y from 'yjs'
-import { fixture, client } from './helpers.js'
+import { fixture, client } from './helpers.ts'
 
 test('development bootstrap assigns distinct identities/colors and only the first host', async () => {
   const f = await fixture({ development: true })
@@ -14,7 +14,7 @@ test('development bootstrap assigns distinct identities/colors and only the firs
     }))
     assert.equal(new Set(identities.map(x => x.id)).size, 10)
     assert.equal(new Set(identities.map(x => x.session)).size, 1)
-    const members = [...f.sessions.values()][0].members.values().toArray()
+    const members = [...[...f.sessions.values()][0].members.values()]
     assert.deepEqual(members.map(x => x.name), Array.from({ length: 10 }, (_, i) => `user-${i + 1}`))
     assert.equal(new Set(members.map(x => x.color)).size, 10)
     assert.deepEqual(members.map(x => x.role), ['host', ...Array(9).fill('reader')])

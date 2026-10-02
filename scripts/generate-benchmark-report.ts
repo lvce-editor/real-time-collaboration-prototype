@@ -3,7 +3,28 @@ import { resolve } from 'node:path'
 
 const benchmarkPath = resolve('benchmark/results.json')
 const sitePath = resolve('site')
-const benchmark = JSON.parse(await readFile(benchmarkPath, 'utf8'))
+type BenchmarkResult = {
+  count: number
+  connected?: number
+  setupMs?: number
+  writers?: number
+  editMs?: number
+  deliveriesPerSecond?: number
+  p50Ms?: number
+  p95Ms?: number
+  peakRssBytes?: number
+  status?: string
+  reason?: string
+}
+type BenchmarkReport = {
+  date: string
+  node: string
+  platform: string
+  cpu: string
+  workload: string
+  results: BenchmarkResult[]
+}
+const benchmark = JSON.parse(await readFile(benchmarkPath, 'utf8')) as BenchmarkReport
 const expectedLevels = [10, 100, 1000, 10000]
 if (!Array.isArray(benchmark.results) || benchmark.results.length !== expectedLevels.length) {
   throw new Error(`Expected benchmark results for ${expectedLevels.join(', ')} participants`)
@@ -21,7 +42,8 @@ const publishedResults = {
   ...benchmark,
   provenance: { repository, commit: sha, workflowRun: runId ?? null, workflowRunUrl: runUrl || null },
 }
-const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char])
+const htmlEscapes: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }
+const esc = (value: unknown): string => String(value ?? '').replace(/[&<>"']/g, char => htmlEscapes[char] ?? char)
 const rows = benchmark.results.map(result => {
   const metrics = [
     ['Connected', `${result.connected ?? 0} / ${result.count}`],
