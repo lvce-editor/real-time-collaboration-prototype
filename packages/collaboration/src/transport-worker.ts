@@ -1,5 +1,5 @@
 // Adapter contract: connect({url, credentials}), send(message), disconnect().
-// A WebRTC/WebTransport adapter can implement this without changing CRDT/UI code.
+// Authority, signaling and recovery use this worker; WebRTC lives in peer-transport.ts.
 type Credentials = { session: string; token: string; id: string }
 type TransportMessage = { type: string; [key: string]: unknown }
 type WorkerCommand = { type: 'connect'; url: string; credentials: Credentials } | { type: 'send'; message: TransportMessage } | { type: 'disconnect' }

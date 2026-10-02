@@ -1,4 +1,5 @@
 import * as Y from 'yjs'
+import { PeerTransport } from './peer-transport.ts'
 import { NativeEditor, type Presence } from './native/editor.ts'
 import { createQueue } from './native/binding.ts'
 
@@ -18,12 +19,14 @@ type Member = { id: string; name: string; role: Role; color: string; online: boo
 type RelativePositionJSON = ReturnType<typeof Y.relativePositionToJSON>
 type Cursor = { anchor: RelativePositionJSON; head: RelativePositionJSON }
 type WireMessage =
-  | { type: 'snapshot'; update: string; files: string[]; self: Member; members: Member[] }
+  | { type: 'snapshot'; peerKey?: JsonWebKey; session: string; update: string; files: string[]; self: Member; members: Member[] }
   | { type: 'update'; update: string }
   | { type: 'ack'; sequence: number }
   | { type: 'member'; member: Member }
-  | { type: 'cursor'; id: string; file: string; cursor: Cursor }
+  | { type: 'cursor'; sequence: number; id: string; file: string; cursor: Cursor }
   | { type: 'error'; message: string }
+  | { type: 'signal'; from: string; description: RTCSessionDescriptionInit }
+  | { type: 'peer-relay'; payload: string; signature: string }
   | { type: 'pong' }
 type ClientMessage = { type: 'update'; update: string; sequence: number } | { type: 'permission'; id: string; role: 'reader' | 'writer' } | { type: 'cursor'; file: string; cursor: Cursor } | { type: 'request-write' }
 let credentials: Credentials | undefined, doc: Y.Doc | undefined, view: NativeEditor | undefined, self: Member | undefined, files: string[] = [], currentFile: string | undefined, connected = false, reconnectTimer: ReturnType<typeof setTimeout> | undefined, sequence = 0
@@ -107,8 +110,12 @@ async function openFile(file: string) {
   log('debug', 'Opened file', { file })
 }
 
-worker.onmessage = ({ data }: MessageEvent<{ type: 'disconnected' | 'transport-error' } | { type: 'message'; message: WireMessage }>) => { void enqueue(async () => {
+type TransportEvent = MessageEvent<{ type: 'disconnected' | 'transport-error' } | { type: 'message'; message: WireMessage }>
+const peers = new PeerTransport(message => worker.postMessage({ type: 'send', message }), (message, isCurrent) => handleTransport({ data: { type: 'message', message } } as TransportEvent, isCurrent), event => log('debug', event))
+const handleTransport = ({ data }: TransportEvent, isCurrent = () => true) => { void enqueue(async () => {
+  if (!isCurrent()) return
   if (data.type === 'disconnected') {
+    peers.reset()
     connected = false
     $('connection').textContent = 'Disconnected · reconnecting'
     updatePermission()
@@ -119,6 +126,8 @@ worker.onmessage = ({ data }: MessageEvent<{ type: 'disconnected' | 'transport-e
   if (data.type === 'transport-error') { log('info', 'Transport error'); return }
   if (data.type !== 'message') return
   const message = data.message
+  if (message.type === 'signal') { peers.accept(message.from, message.description); return }
+  if (message.type === 'peer-relay') { peers.relay(message); return }
   log('trace', `receive ${message.type}`, message.type === 'update' || message.type === 'snapshot' ? { bytes: message.update.length } : message)
   switch (message.type) {
     case 'snapshot':
@@ -144,6 +153,7 @@ worker.onmessage = ({ data }: MessageEvent<{ type: 'disconnected' | 'transport-e
       })
       await openFile(files.includes(currentFile ?? '') ? currentFile! : files[0]!)
       renderMembers()
+      peers.reset(message)
       log('info', 'Joined collaboration', { role: self!.role, files: files.length })
       break
     case 'update': {
@@ -155,13 +165,16 @@ worker.onmessage = ({ data }: MessageEvent<{ type: 'disconnected' | 'transport-e
     }
     case 'ack': pending.delete(message.sequence); log('debug', 'Edit acknowledged', { sequence: message.sequence }); break
     case 'member':
+      if (members.get(message.member.id)?.online !== message.member.online) peers.member(message.member)
       members.set(message.member.id, message.member)
       if (!message.member.online) cursors.delete(message.member.id)
       if (message.member.id === self?.id) { self = message.member; updatePermission() }
       renderMembers(); renderCursors(); if (message.member.online) publishCursor()
       log('info', 'Participant changed', message.member)
       break
-    case 'cursor': cursors.set(message.id, message); renderCursors(); break
+    case 'cursor':
+      if (message.sequence > (cursors.get(message.id)?.sequence ?? -1)) { cursors.set(message.id, message); renderCursors() }
+      break
     case 'error':
       log('info', 'Server rejected operation', { reason: message.message })
       $('error').textContent = message.message
@@ -175,6 +188,7 @@ worker.onmessage = ({ data }: MessageEvent<{ type: 'disconnected' | 'transport-e
       break
   }
 }) }
+worker.onmessage = handleTransport
 async function enter(path: string, data: Record<string, unknown>): Promise<void> {
   try {
     $('error').textContent = ''
@@ -182,7 +196,7 @@ async function enter(path: string, data: Record<string, unknown>): Promise<void>
     const result = await response.json() as Credentials & { error?: string }
     if (!response.ok) throw new Error(result.error ?? 'Request failed')
     credentials = result
-    sessionStorage.setItem('collaboration.credentials', JSON.stringify(credentials))
+    if (!development) sessionStorage.setItem('collaboration.credentials', JSON.stringify(credentials))
     connect()
   } catch (error) { $('error').textContent = error instanceof Error ? error.message : String(error) }
 }
@@ -209,8 +223,12 @@ $('download').onclick = () => {
   const link = document.createElement('a'); link.href = url; link.download = currentFile!.split('/').at(-1) ?? 'file.txt'; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 $('invitation').value = location.hash.slice(1)
-try {
+const { development } = await fetch('/api/config').then(response => response.json()) as { development: boolean }
+if (development) {
+  $('leave').textContent = 'Join as new user'
+  await enter('/api/dev', {})
+} else try {
   const saved = JSON.parse(sessionStorage.getItem('collaboration.credentials') ?? 'null')
   if (saved && typeof saved.session === 'string' && typeof saved.token === 'string' && typeof saved.id === 'string' && (!location.hash || saved.session === location.hash.slice(1))) { credentials = saved as Credentials; connect() }
 } catch { sessionStorage.removeItem('collaboration.credentials') }
-window.addEventListener('beforeunload', () => worker.terminate())
+window.addEventListener('beforeunload', () => { peers.reset(); worker.terminate() })

@@ -9,6 +9,7 @@
   "scripts": {
     "postinstall": "node packages/server/scripts/patch-server.ts",
     "build": "npm run build --workspace=packages/build",
+    "dev": "npm run build && node packages/server/src/server.ts --dev",
     "start": "node packages/server/src/server.ts",
     "test": "npm test --workspace=packages/collaboration",
     "typecheck": "npm run typecheck --workspace=packages/collaboration",

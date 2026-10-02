@@ -5,6 +5,10 @@ import { createCollaboration, type CreateOptions, type Credentials } from '../sr
 
 type ProtocolMessage = {
   type: string
+  from?: string
+  peerKey?: import('node:crypto').JsonWebKey
+  payload?: string
+  signature?: string
   id?: string
   update?: string
   sequence?: number

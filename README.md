@@ -17,6 +17,17 @@ Open http://127.0.0.1:3000 in separate browser profiles. Host a demo project or 
 
 For another machine on a trusted network, run `HOST=0.0.0.0 npm start` and open the host's network address. Use TLS at a reverse proxy for remote use. Invitation holders can read the entire selected project; participant credentials stay in tab session storage. The prototype serves only its own routes, never the underlying LVCE filesystem RPC.
 
+## Try automatic development collaboration
+
+```sh
+npm ci
+npm run dev
+```
+
+Open http://127.0.0.1:3000 in multiple tabs or browsers. This command builds the application and starts one Node.js server, which owns the shared demo session and WebRTC signaling. Each page load gets a fresh `user-N` identity and a distinct color, including duplicated tabs. The first participant is the host; other users start read-only. Click **Allow user-N** as host to let them edit. Closing the host does not promote another user. Reloading creates a new user; restart the dev server to start a fresh session and host. Temporary network reconnections within a page retain that page's identity and recover a server snapshot.
+
+Browsers establish reliable ordered WebRTC data channels in a mesh. Node authenticates and routes SDP/ICE, validates edits and signs committed edits/cursors before the originating browser relays them to peers. The server also delivers updates over WebSocket for recovery and fallback; this is deliberately redundant prototype transport. Debug output shows peer connections and received WebRTC updates/cursors. Large payloads (over 60 kB), unavailable peers and browsers without WebRTC/secure-context crypto use WebSocket delivery. No STUN/TURN service is configured: this is intended for localhost or a reachable trusted LAN, not NAT traversal across the internet. Remote browsers need HTTPS for signature verification. The regular `npm start` invitation workflow remains available.
+
 ## Integration decision
 
 The workbench runs the native LVCE editor and syntax workers, with LVCE input commands, selections and virtual-DOM rendering. Yjs binds native edits to the authoritative session. Local postinstall patches add HTTP/WebSocket hooks to the pinned server and a narrow snapshot/state interface to the pinned editor worker. All patches live in this repository; no upstream checkout or release is required. The collaboration controls and output channel belong to this prototype shell.
@@ -24,7 +35,7 @@ The workbench runs the native LVCE editor and syntax workers, with LVCE input co
 
 The npm workspace packages separate collaboration code and protocol tests (`packages/collaboration`), the LVCE server integration (`packages/server`), browser tests (`packages/e2e`), build scripts (`packages/build`), and load benchmarks (`packages/benchmark`). Root scripts keep the common commands available from the repository root.
 
-The native adapter serializes input and remote updates, preserves relative selections, and disposes editor workers when switching files or reconnecting. See [architecture and limitations](docs/architecture.md). The transport worker exposes connect/send/disconnect, with WebSocket as the working adapter; WebRTC/WebTransport are future adapters, not implemented transports.
+The native adapter serializes input and remote updates, preserves relative selections, and disposes editor workers when switching files or reconnecting. See [architecture and limitations](docs/architecture.md). The transport worker exposes connect/send/disconnect, with WebSocket for authority and recovery. Development sessions additionally use browser-owned WebRTC peer connections; WebTransport remains unimplemented.
 
 ## Verification
 
