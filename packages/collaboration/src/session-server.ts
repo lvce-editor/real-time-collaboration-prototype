@@ -1,3 +1,4 @@
+import { resolve, extname, sep } from 'node:path'
 import { randomUUID, generateKeyPairSync, sign } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { WebSocketServer, WebSocket } from 'ws'
@@ -202,12 +203,15 @@ export function createCollaboration({ idleMs = 30 * 60_000, maxMembers = 10_001,
     }
   }, Math.min(idleMs, 60_000))
   sweep.unref()
-  const assets: Record<string, [string, string]> = { '/syntaxHighlightingWorkerMain.js': ['syntaxHighlightingWorkerMain.js', 'text/javascript'], '/editorWorkerMain.js': ['editorWorkerMain.js', 'text/javascript'], '/native.css': ['native.css', 'text/css'], '/': ['index.html', 'text/html'], '/client.js': ['client.js', 'text/javascript'], '/transport-worker.js': ['transport-worker.js', 'text/javascript'], '/style.css': ['style.css', 'text/css'] }
+  const assets: Record<string, [string, string]> = { '/workbench-client.js': ['workbench-client.js', 'text/javascript'], '/collaboration.css': ['collaboration.css', 'text/css'], '/transport-worker.js': ['transport-worker.js', 'text/javascript'] }
   const request = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     try {
       res.setHeader('X-Content-Type-Options', 'nosniff')
       res.setHeader('Referrer-Policy', 'no-referrer')
       res.setHeader('Cache-Control', 'no-store')
+      res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp')
+      res.setHeader('Cross-Origin-Opener-Policy', 'same-origin')
+      res.setHeader('Cross-Origin-Resource-Policy', 'same-origin')
       const path = new URL(req.url ?? '/', 'http://localhost').pathname
       if (req.method === 'POST' && ['/api/create', '/api/join', '/api/dev'].includes(path)) {
         if (req.headers.origin && req.headers.origin !== `http://${req.headers.host}` && req.headers.origin !== `https://${req.headers.host}`) throw new Error('Origin rejected')
@@ -227,6 +231,17 @@ export function createCollaboration({ idleMs = 30 * 60_000, maxMembers = 10_001,
         const [file, mime] = assets[path]
         res.setHeader('Content-Type', mime)
         res.end(await readFile(fileURLToPath(new URL(`../../../dist/${file}`, import.meta.url))))
+      } else if (req.method === 'GET' && (path === '/' || path === '/index.html' || path === '/favicon.ico' || path.startsWith('/56b33a7/'))) {
+        // Only the copied immutable workbench is readable. Local filesystem RPC,
+        // shared-process WebSockets and paths outside this artifact stay denied.
+        const base = fileURLToPath(new URL('../../../dist/workbench/', import.meta.url))
+        const file = resolve(base, path === '/' ? 'index.html' : '.' + decodeURIComponent(path))
+        if (!file.startsWith(base.endsWith(sep) ? base : base + sep)) throw new Error('Invalid asset path')
+        const mime: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.ttf': 'font/ttf', '.woff2': 'font/woff2', '.wasm': 'application/wasm', '.ico': 'image/x-icon' }
+        res.setHeader('Content-Type', mime[extname(file)] ?? 'application/octet-stream')
+        res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp')
+        res.setHeader('Cross-Origin-Opener-Policy', 'same-origin')
+        res.end(await readFile(file))
       } else {
         res.statusCode = 404
         res.end('Not found')

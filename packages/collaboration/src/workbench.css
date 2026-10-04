@@ -1,0 +1,5 @@
+.collaboration-presence { position: fixed; overflow: hidden; pointer-events: none; z-index: 5; }
+.remote-cursor { position: absolute; border-left: 2px solid; }
+.remote-cursor-label { position: absolute; bottom: 100%; left: -2px; color: white; font-size: 11px; white-space: nowrap; padding: 2px 4px; border-radius: 3px; }
+.collaboration-avatar { display: inline-block; background: #ffffff40; border-radius: 50%; width: 15px; height: 15px; text-align: center; margin-right: 4px; }
+.remote-selection { position: absolute; opacity: 0.25; }

@@ -16,7 +16,8 @@
     "allowImportingTsExtensions": true
   },
   "include": [
-    "src/client.ts",
+    "src/workbench-client.ts",
+    "src/vendor.d.ts",
     "src/transport-worker.ts"
   ]
 }
