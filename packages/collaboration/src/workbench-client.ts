@@ -82,6 +82,10 @@ function publishCursor(file: string, native: NativeState) {
     head: Y.relativePositionToJSON(Y.createRelativePositionFromTypeIndex(text, offsetAt(native.text, native.selections[2], native.selections[3]))),
   } })
 }
+async function publishActiveCursor() {
+  const editor = (await editors()).find(editor => editorFile(editor) === currentFile)
+  if (editor) publishCursor(currentFile, await state(editor))
+}
 const overlays = new Map<number, HTMLElement>()
 async function presence() {
   const live = await editors()
@@ -154,7 +158,7 @@ function handleTransport(data: any, isCurrent = () => true) {
         void invoke('Collaboration.openFile', root + currentFile).then(() => enqueue(async () => {
           if (epoch !== generation || !credentials) return
           connected = true; peers.reset(message)
-          await sync(await capture()); log('info', 'Joined collaboration', { role: self?.role, files: files.length })
+          await sync(await capture()); await publishActiveCursor(); log('info', 'Joined collaboration', { role: self?.role, files: files.length })
         })).catch(console.error)
         break
       }
@@ -165,7 +169,7 @@ function handleTransport(data: any, isCurrent = () => true) {
         members.set(message.member.id, message.member)
         if (!message.member.online) cursors.delete(message.member.id)
         if (message.member.id === self?.id) self = message.member
-        await presence(); log('info', 'Participant changed', message.member); break
+        await presence(); if (message.member.online) await publishActiveCursor(); log('info', 'Participant changed', message.member); break
       case 'cursor':
         if (message.sequence > (cursors.get(message.id)?.sequence ?? -1)) { cursors.set(message.id, message); await presence() } break
       case 'error':
