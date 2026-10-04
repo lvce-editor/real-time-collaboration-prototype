@@ -4,9 +4,17 @@ test.use({ baseURL: 'http://127.0.0.1:3001' })
 test('dev command automatically joins tabs and browsers with working WebRTC and cleanup', async ({ browser }) => {
   const context = await browser.newContext(), other = await browser.newContext()
   try {
+    // Record peer startup even if negotiation finishes before the editor opens.
+    await context.addInitScript(() => localStorage.setItem('collaboration.logLevel', 'debug'))
     const host = await context.newPage(); await host.goto('/'); await joined(host); await action(host, 'Log verbosity', { level: 'debug' })
     expect((await snapshot(host)).self.name).toBe('user-1')
-    const guest = await context.newPage(); await guest.goto('/'); await joined(guest); await action(guest, 'Log verbosity', { level: 'debug' })
+    const guest = await context.newPage()
+    // Delay native editor loading while the host's WebRTC offer arrives.
+    await guest.route('**/editor-worker/**', async route => {
+      await new Promise(resolve => setTimeout(resolve, 1000))
+      await route.continue()
+    })
+    await guest.goto('/'); await joined(guest); await action(guest, 'Log verbosity', { level: 'debug' })
     expect((await snapshot(guest)).self.name).toBe('user-2')
     await expect.poll(async () => (await snapshot(host)).log).toContain('WebRTC peer connected')
     await expect.poll(async () => (await snapshot(guest)).log).toContain('WebRTC peer connected')

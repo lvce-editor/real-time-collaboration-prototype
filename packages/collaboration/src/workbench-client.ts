@@ -149,6 +149,9 @@ function handleTransport(data: any, isCurrent = () => true) {
         if (pending.size) log('info', 'Reconnected to authority; unacknowledged edits may have been discarded', { count: pending.size })
         pending.clear(); cursors.clear(); self = message.self; files = message.files; members.clear()
         for (const member of message.members) members.set(member.id, member)
+        // Signaling can arrive while the workbench opens its native editor.
+        // Establish peers before releasing this snapshot's queue position.
+        peers.reset(message)
         const project = Object.fromEntries(files.map(file => [file, doc!.getText(file).toString()]))
         await invoke('Collaboration.workspace', project)
         doc.on('update', (update, origin) => { if (origin !== 'remote') { const id = ++sequence; pending.add(id); send({ type: 'update', update: encode(update), sequence: id }) } })
@@ -157,7 +160,7 @@ function handleTransport(data: any, isCurrent = () => true) {
         // this queue before waiting on that lifecycle, then reconcile authority.
         void invoke('Collaboration.openFile', root + currentFile).then(() => enqueue(async () => {
           if (epoch !== generation || !credentials) return
-          connected = true; peers.reset(message)
+          connected = true
           await sync(await capture()); await publishActiveCursor(); log('info', 'Joined collaboration', { role: self?.role, files: files.length })
         })).catch(console.error)
         break
