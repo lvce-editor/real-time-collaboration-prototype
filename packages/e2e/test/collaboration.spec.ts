@@ -1,8 +1,8 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, chromium } from '@playwright/test'
 import { copyFile, mkdir, readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { action, append, documentText, editor, grant, joined, openFile, pair, ready, revoke, snapshot } from './workbench.ts'
+import { action, append, documentText, editor, grant, joined, openFile, pair, pairAcross, ready, revoke, snapshot } from './workbench.ts'
 
 test('complete LVCE workbench exposes collaboration through its command palette and Output', async ({ page }) => {
   await page.goto('/'); await ready(page)
@@ -96,6 +96,38 @@ test('colored participant cursors follow edits and disappear on departure', asyn
     await append(p.host, 'prefix'); await expect(p.host.locator('.remote-cursor')).toHaveCount(1)
     await action(p.guest, 'Leave'); await expect(p.host.locator('.remote-cursor')).toHaveCount(0)
   } finally { await p.close() }
+})
+test('remote cursor aligns with rendered text', async ({ browser }) => {
+  const otherBrowser = browser.browserType().name() === 'firefox' ? await chromium.launch() : undefined
+  const p = await (otherBrowser ? pairAcross(browser, otherBrowser) : pair(browser))
+  try {
+    await grant(p.host, p.guest)
+    await append(p.guest, 'Firefox cursor alignment')
+    const cursor = p.host.locator('.remote-cursor')
+    const row = editor(p.host).locator('.EditorRow').filter({ hasText: 'Firefox cursor alignment' }).last()
+    await expect.poll(async () => {
+      const cursorBox = await cursor.boundingBox()
+      const textRight = await row.evaluate(element => {
+        const range = document.createRange(); range.selectNodeContents(element)
+        return range.getBoundingClientRect().right
+      })
+      return cursorBox ? Math.abs(cursorBox.x - textRight) : Infinity
+    }).toBeLessThanOrEqual(2)
+
+    for (let index = 0; index < 'alignment'.length; index++) await p.guest.keyboard.press('Shift+ArrowLeft')
+    const selection = p.host.locator('.remote-selection').first()
+    await expect.poll(async () => {
+      const selectionBox = await selection.boundingBox()
+      const textRight = await row.evaluate(element => {
+        const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT)
+        let node = walker.nextNode() as Text
+        while (walker.nextNode()) node = walker.currentNode as Text
+        const range = document.createRange(); range.setStart(node, node.data.length - 'alignment'.length); range.setEnd(node, node.data.length)
+        return range.getBoundingClientRect().right
+      })
+      return selectionBox ? Math.abs(selectionBox.x + selectionBox.width - textRight) : Infinity
+    }).toBeLessThanOrEqual(2)
+  } finally { await p.close(); await otherBrowser?.close() }
 })
 test('reload reconnects with retained writer identity and project', async ({ browser }) => {
   const p = await pair(browser)
