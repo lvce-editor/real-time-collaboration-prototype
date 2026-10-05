@@ -1,3 +1,4 @@
+import { gzipSync } from 'node:zlib'
 import { resolve, extname, sep } from 'node:path'
 import { randomUUID, generateKeyPairSync, sign } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
@@ -12,7 +13,7 @@ export type Credentials = { session: string; token: string; id: string }
 type RelativePositionJSON = ReturnType<typeof Y.relativePositionToJSON>
 type CursorPosition = { anchor: RelativePositionJSON; head: RelativePositionJSON }
 type ClientMessage =
-  | { type: 'hello'; session: string; token: string }
+  | { type: 'hello'; session: string; token: string; presence?: 'batched' }
   | { type: 'update'; update: string; sequence: number }
   | { type: 'request-write' }
   | { type: 'permission'; id: string; role: 'reader' | 'writer' }
@@ -20,12 +21,13 @@ type ClientMessage =
   | { type: 'signal'; to: string; description: unknown }
   | { type: 'ping' }
 type ServerMessage = Record<string, unknown> & { type: string }
-type Participant = { id: string; token: string; name: string; role: Role; color: string; requested: boolean; socket?: WebSocket }
-type Session = { id: string; doc: Y.Doc; files: string[]; members: Map<string, Participant>; touched: number; development?: boolean }
+type PublishedCursor = { type: 'cursor'; id: string; file: string; cursor: CursorPosition; sequence: number }
+type Participant = { id: string; token: string; name: string; role: Role; color: string; requested: boolean; socket?: WebSocket; cursor?: PublishedCursor }
+type Session = { id: string; doc: Y.Doc; files: string[]; members: Map<string, Participant>; touched: number; development?: boolean; presence?: ReturnType<typeof setTimeout>; changes?: ReturnType<typeof publicMember>[]; snapshots?: Map<WebSocket, Participant>; snapshotTimer?: ReturnType<typeof setTimeout> }
 export type CreateOptions = { idleMs?: number; maxMembers?: number; maxSessions?: number; development?: boolean }
 
 declare module 'ws' {
-  interface WebSocket { alive?: boolean }
+  interface WebSocket { alive?: boolean; batchedPresence?: boolean }
 }
 
 export const encode = (data: Uint8Array): string => Buffer.from(data).toString('base64')
@@ -36,10 +38,10 @@ export const decode = (data: unknown): Uint8Array => {
 // A permutation of 24-bit RGB values: no repeats within the participant limit.
 const color = (index: number): string => '#' + ((0xd32f2f + index * 0x9e3779) % 0x1000000).toString(16).padStart(6, '0')
 const publicMember = (p: Participant) => ({ id: p.id, name: p.name, role: p.role, color: p.color, online: !!p.socket, requested: p.requested })
-const send = (socket: WebSocket | undefined, message: ServerMessage): void => {
+const send = (socket: WebSocket | undefined, message: ServerMessage | Buffer, binary = false): void => {
   if (socket?.readyState !== WebSocket.OPEN) return
   if (socket.bufferedAmount > 2_000_000) return socket.close(1013, 'Slow consumer; reconnect for snapshot')
-  socket.send(JSON.stringify(message))
+  socket.send(Buffer.isBuffer(message) ? message : JSON.stringify(message), { binary })
 }
 export function createCollaboration({ idleMs = 30 * 60_000, maxMembers = 10_001, maxSessions = 100, development = false }: CreateOptions = {}) {
   const keys = generateKeyPairSync('ed25519')
@@ -47,9 +49,57 @@ export function createCollaboration({ idleMs = 30 * 60_000, maxMembers = 10_001,
   let peerSequence = 0
   const sessions = new Map<string, Session>()
   const wss = new WebSocketServer({ noServer: true, maxPayload: 1_400_000 })
-  const broadcast = (session: Session, message: ServerMessage, except?: WebSocket): void => {
-    for (const p of session.members.values()) if (p.socket !== except) send(p.socket, message)
+  let presenceSequence = 0
+  const compressedPresence = (message: ServerMessage): Buffer => {
+    const header = Buffer.alloc(8)
+    header.writeDoubleBE(++presenceSequence)
+    return Buffer.concat([header, gzipSync(JSON.stringify(message), { level: 1 })])
   }
+  const broadcast = (session: Session, message: ServerMessage, except?: WebSocket): void => {
+    if (session.snapshots?.size) flushSnapshots(session)
+    const data = message.type === 'members' ? compressedPresence(message) : Buffer.from(JSON.stringify(message))
+    for (const p of session.members.values()) {
+      if (p.socket === except) continue
+      if (message.type === 'members' && !p.socket?.batchedPresence) {
+        for (const member of message.members as ReturnType<typeof publicMember>[]) send(p.socket, { type: 'member', member })
+      } else send(p.socket, data, message.type === 'members')
+    }
+  }
+  const snapshot = (session: Session, participant: Participant, members: ReturnType<typeof publicMember>[], presencePending = false): ServerMessage => ({ type: 'snapshot', peerKey: session.development ? keys.publicKey.export({ format: 'jwk' }) : undefined, session: session.id, update: encode(Y.encodeStateAsUpdate(session.doc)), files: session.files, self: publicMember(participant), members, presencePending, cursors: presencePending ? [] : [...session.members.values()].flatMap(p => p.socket && p.cursor ? [p.cursor] : []) })
+  // Joining sockets in one burst share a serialized roster instead of each
+  // constructing/stringifying the same growing directory. No members are omitted.
+  const flushSnapshots = (session: Session): void => {
+    clearTimeout(session.snapshotTimer)
+    session.snapshotTimer = undefined
+    const pending = session.snapshots
+    session.snapshots = undefined
+    if (!pending?.size) return
+    const online = [...session.members.values()].filter(p => p.socket || p.role === 'host')
+    const roster = compressedPresence({ type: 'roster', members: online.map(publicMember), cursors: online.flatMap(p => p.socket && p.cursor ? [p.cursor] : []) })
+    for (const [socket, participant] of pending) {
+      if (participant.socket !== socket) continue
+      send(socket, snapshot(session, participant, [], true))
+      send(socket, roster, true)
+    }
+  }
+  // Keep full presence, but amortize bursty joins/departures into ordered frames.
+  const flushPresence = (session: Session): void => {
+    clearTimeout(session.presence)
+    session.presence = undefined
+    const changes = session.changes
+    session.changes = undefined
+    if (changes?.length) broadcast(session, { type: 'members', members: changes })
+  }
+  const publishMember = (session: Session, participant: Participant): void => {
+    if (session.members.size <= 32) {
+      broadcast(session, { type: 'member', member: publicMember(participant) })
+      return
+    }
+    ;(session.changes ??= []).push(publicMember(participant))
+    if (session.changes.length >= 128) flushPresence(session)
+    else session.presence ??= setTimeout(() => flushPresence(session), 50)
+  }
+  let closing = false
   const member = (session: Session, name: unknown, role: Role): Participant => {
     if (session.members.size >= maxMembers) throw new Error('Session participant limit reached')
     const p = { id: randomUUID(), token: randomUUID(), name: String(name || 'Guest').slice(0, 60), role, color: color(session.members.size), requested: false }
@@ -122,10 +172,15 @@ export function createCollaboration({ idleMs = 30 * 60_000, maxMembers = 10_001,
           clearTimeout(timeout)
           const previous = participant.socket
           participant.socket = socket
+          participant.cursor = undefined
           previous?.close(1000, 'Connection replaced')
           session.touched = Date.now()
-          send(socket, { type: 'snapshot', peerKey: session.development ? keys.publicKey.export({ format: 'jwk' }) : undefined, session: session.id, update: encode(Y.encodeStateAsUpdate(session.doc)), files: session.files, self: publicMember(participant), members: [...session.members.values()].filter(p => p.socket || p.role === 'host').map(publicMember) })
-          broadcast(session, { type: 'member', member: publicMember(participant) }, socket)
+          socket.batchedPresence = message.presence === 'batched'
+          if (socket.batchedPresence) {
+            ;(session.snapshots ??= new Map()).set(socket, participant)
+            session.snapshotTimer ??= setTimeout(() => flushSnapshots(session!), 2)
+          } else send(socket, snapshot(session, participant, [...session.members.values()].filter(p => p.socket || p.role === 'host').map(publicMember)))
+          publishMember(session, participant)
           return
         }
         if (participant.socket !== socket) throw new Error('Connection replaced')
@@ -156,6 +211,7 @@ export function createCollaboration({ idleMs = 30 * 60_000, maxMembers = 10_001,
           }
           case 'request-write':
             if (participant.role === 'reader') {
+              flushPresence(session)
               participant.requested = true
               broadcast(session, { type: 'member', member: publicMember(participant) })
             }
@@ -164,6 +220,7 @@ export function createCollaboration({ idleMs = 30 * 60_000, maxMembers = 10_001,
             if (participant.role !== 'host') throw new Error('Host approval required')
             const target = [...session.members.values()].find(p => p.id === message.id)
             if (!target || target.role === 'host' || (message.role !== 'reader' && message.role !== 'writer')) throw new Error('Invalid permission change')
+            flushPresence(session)
             target.role = message.role
             target.requested = false
             broadcast(session, { type: 'member', member: publicMember(target) })
@@ -171,7 +228,8 @@ export function createCollaboration({ idleMs = 30 * 60_000, maxMembers = 10_001,
           }
           case 'cursor': {
             if (typeof message.file !== 'string' || !session.files.includes(message.file) || JSON.stringify(message.cursor).length > 2000) throw new Error('Invalid cursor')
-            const cursor = { type: 'cursor', id: participant.id, file: message.file, cursor: message.cursor, sequence: ++peerSequence }
+            const cursor: PublishedCursor = { type: 'cursor', id: participant.id, file: message.file, cursor: message.cursor, sequence: ++peerSequence }
+            participant.cursor = cursor
             broadcast(session, cursor, socket)
             relay(session, participant, cursor)
             break
@@ -190,8 +248,9 @@ export function createCollaboration({ idleMs = 30 * 60_000, maxMembers = 10_001,
       clearTimeout(timeout)
       if (participant?.socket !== socket || !session) return
       participant.socket = undefined
+      participant.cursor = undefined
       session.touched = Date.now()
-      broadcast(session, { type: 'member', member: publicMember(participant) })
+      if (!closing) publishMember(session, participant)
     })
   })
   const sweep = setInterval(() => {
@@ -257,6 +316,8 @@ export function createCollaboration({ idleMs = 30 * 60_000, maxMembers = 10_001,
     wss.handleUpgrade(req, socket, head, ws => wss.emit('connection', ws, req))
   }
   const close = async () => {
+    closing = true
+    for (const session of sessions.values()) { clearTimeout(session.presence); clearTimeout(session.snapshotTimer) }
     clearInterval(sweep)
     clearInterval(heartbeat)
     for (const socket of wss.clients) socket.terminate()

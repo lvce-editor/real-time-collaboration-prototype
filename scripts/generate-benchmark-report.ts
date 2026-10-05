@@ -13,6 +13,10 @@ type BenchmarkResult = {
   p50Ms?: number
   p95Ms?: number
   peakRssBytes?: number
+  serverPeakRssBytes?: number
+  serverEventLoopP95Ms?: number
+  serverBytesSent?: number
+  connectBatch?: number
   status?: string
   reason?: string
 }
@@ -23,6 +27,7 @@ type BenchmarkReport = {
   cpu: string
   workload: string
   results: BenchmarkResult[]
+  combinedResults: BenchmarkResult[]
 }
 const benchmark = JSON.parse(await readFile(benchmarkPath, 'utf8')) as BenchmarkReport
 const expectedLevels = [10, 100, 1000, 10000]
@@ -52,10 +57,16 @@ const rows = benchmark.results.map(result => {
     ['Edit propagation', result.editMs == null ? '—' : `${result.editMs} ms`],
     ['Deliveries / second', result.deliveriesPerSecond ?? '—'],
     ['Latency p50 / p95', result.p50Ms == null ? '—' : `${result.p50Ms} / ${result.p95Ms} ms`],
-    ['Peak RSS', result.peakRssBytes == null ? '—' : `${(result.peakRssBytes / 1048576).toFixed(1)} MiB`],
+    ['Load-generator peak RSS', result.peakRssBytes == null ? '—' : `${(result.peakRssBytes / 1048576).toFixed(1)} MiB`],
+    ['Server peak RSS', result.serverPeakRssBytes == null ? '—' : `${(result.serverPeakRssBytes / 1048576).toFixed(1)} MiB`],
+    ['Server traffic sent', result.serverBytesSent == null ? '—' : `${(result.serverBytesSent / 1048576).toFixed(1)} MiB`],
+    ['Server event-loop p95', result.serverEventLoopP95Ms == null ? '—' : `${result.serverEventLoopP95Ms.toFixed(1)} ms`],
+    ['Connection ramp', result.connectBatch ?? '—'],
   ]
   return `<article class="result ${result.status === 'passed' ? 'passed' : 'failed'}"><div class="result-heading"><h3>${result.count.toLocaleString()} participants</h3><span class="status">${esc(result.status ?? 'incomplete')}</span></div><dl>${metrics.map(([name, value]) => `<div><dt>${esc(name)}</dt><dd>${esc(value)}</dd></div>`).join('')}</dl>${result.reason ? `<p class="failure">Failure: ${esc(result.reason)}</p>` : ''}</article>`
 }).join('\n')
+
+const diagnostic = benchmark.combinedResults.map(result => `<p><strong>${esc(result.count)} participants:</strong> ${esc(result.status)}, connected ${esc(result.connected)}; setup ${esc(result.setupMs)} ms.${result.reason ? ` Failure: ${esc(result.reason)}` : ''}</p>`).join('\n')
 
 const html = `<!doctype html>
 <html lang="en">
@@ -107,6 +118,11 @@ const html = `<!doctype html>
   <section aria-labelledby="levels-title">
     <h2 id="levels-title">Participant levels</h2>
     <div class="results">${rows}</div>
+  </section>
+  <section class="intro" aria-labelledby="diagnostic-title">
+    <h2 id="diagnostic-title">Combined-process diagnostic</h2>
+    <p>The original 20-at-a-time ramp shares a process between server and clients. It measures their combined cost; capacity above is measured with a separate server and a 200-at-a-time ramp. Both retain complete presence, the 45-second deadline and the 768 MiB heap limit per process. A failure here is retained, not treated as a server connection limit.</p>
+    ${diagnostic}
   </section>
   <section class="demo" aria-labelledby="demo-title">
     <h2 id="demo-title">Collaboration in action</h2>

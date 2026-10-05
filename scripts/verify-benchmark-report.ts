@@ -7,10 +7,11 @@ const html = await readFile(htmlPath, 'utf8')
 type PublishedReport = {
   provenance?: { repository?: string; commit?: string; workflowRun?: string | null }
   results?: Array<{ count: number; status: string; reason?: string }>
+  combinedResults?: Array<{ count: number; status: string; reason?: string }>
 }
 const report = JSON.parse(await readFile(jsonPath, 'utf8')) as PublishedReport
 const expectedLevels = [10, 100, 1000, 10000]
-for (const fragment of ['href="./benchmark-results.json"', 'src="./collaboration-demo.webm"', 'Real-time collaboration benchmarks', 'four participants contributing edits together for at least one minute', 'Failed and capacity-limited levels are shown']) {
+for (const fragment of ['href="./benchmark-results.json"', 'src="./collaboration-demo.webm"', 'Real-time collaboration benchmarks', 'four participants contributing edits together for at least one minute', 'Failed and capacity-limited levels are shown', 'Combined-process diagnostic', 'Server peak RSS', 'Load-generator peak RSS']) {
   if (!html.includes(fragment)) throw new Error(`Generated report is missing ${fragment}`)
 }
 if (report.results?.length !== expectedLevels.length || report.results.some((result, index) => result.count !== expectedLevels[index])) {
@@ -19,7 +20,8 @@ if (report.results?.length !== expectedLevels.length || report.results.some((res
 if (!report.provenance?.repository || !report.provenance?.commit || !('workflowRun' in report.provenance)) {
   throw new Error('Published JSON is missing workflow provenance')
 }
-for (const result of report.results) {
+if (report.combinedResults?.length !== expectedLevels.length || report.combinedResults.some((r, i) => r.count !== expectedLevels[i])) throw new Error('Missing combined-process diagnostics')
+for (const result of [...report.results, ...report.combinedResults]) {
   const entities: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }
   const safeReason = String(result.reason ?? '').replace(/[&<>"']/g, char => entities[char] ?? char)
   if (result.status !== 'passed' && !result.reason) throw new Error(`Failed ${result.count}-participant result has no failure reason`)
