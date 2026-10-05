@@ -32,7 +32,10 @@ export async function openFile(page: Page, file: string) {
   await expect(editor(page).locator('textarea')).toBeVisible()
 }
 export async function pair(browser: any) {
-  const hc = await browser.newContext(), gc = await browser.newContext()
+  return pairAcross(browser, browser)
+}
+export async function pairAcross(hostBrowser: any, guestBrowser: any) {
+  const hc = await hostBrowser.newContext(), gc = await guestBrowser.newContext()
   const host = await hc.newPage(), guest = await gc.newPage()
   await host.goto('/'); await action(host, 'Host project', { name: 'Host' }); await joined(host)
   const invitation = (await snapshot(host)).invitation

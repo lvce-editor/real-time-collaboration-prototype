@@ -87,6 +87,37 @@ async function publishActiveCursor() {
   if (editor) publishCursor(currentFile, await state(editor))
 }
 const overlays = new Map<number, HTMLElement>()
+function textBoundary(row: HTMLElement, column: number): number | undefined {
+  const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT)
+  let node = walker.nextNode() as Text | null
+  if (!node && column === 0) return row.getBoundingClientRect().left
+  let remaining = column
+  while (node) {
+    const length = node.data.length
+    if (remaining <= length) {
+      const offset = remaining
+      if (offset === 0) {
+        if (!length) return row.getBoundingClientRect().left
+        const range = document.createRange(); range.setStart(node, 0); range.setEnd(node, 1)
+        return range.getBoundingClientRect().left
+      }
+      const range = document.createRange(); range.setStart(node, offset - 1); range.setEnd(node, offset)
+      return range.getBoundingClientRect().right
+    }
+    remaining -= length
+    node = walker.nextNode() as Text | null
+  }
+  return undefined
+}
+function renderedRow(rows: HTMLElement, line: string, top: number): HTMLElement | undefined {
+  let closest: HTMLElement | undefined, distance = Infinity
+  for (const candidate of rows.querySelectorAll<HTMLElement>('.EditorRow')) {
+    if (candidate.textContent !== line) continue
+    const candidateDistance = Math.abs(candidate.getBoundingClientRect().top - top)
+    if (candidateDistance < distance) { closest = candidate; distance = candidateDistance }
+  }
+  return closest
+}
 async function presence() {
   const live = await editors()
   for (const [uid, overlay] of overlays) {
@@ -112,7 +143,13 @@ async function presence() {
       const element = document.querySelector(`[data-uid="${editor.uid}"]`) ?? document.querySelector('.Editor')
       const rows = element?.querySelector('.EditorRows') as HTMLElement | null
       const gutter = rows ? rows.getBoundingClientRect().left - editor.x : 50
-      Object.assign(caret.style, { left: `${gutter + col * native.charWidth - native.deltaX}px`, top: `${row * native.rowHeight - native.deltaY}px`, height: `${native.rowHeight}px`, borderColor: member.color })
+      const lines = native.text.split('\n')
+      const rendered = rows && renderedRow(rows, lines[row] ?? '', editor.y + row * native.rowHeight - native.deltaY)
+      const measuredX = rendered && textBoundary(rendered, col)
+      const caretLeft = measuredX == null ? gutter + col * native.charWidth - native.deltaX : measuredX - editor.x
+      const caretTop = rendered ? rendered.getBoundingClientRect().top - editor.y : row * native.rowHeight - native.deltaY
+      const caretHeight = rendered?.getBoundingClientRect().height ?? native.rowHeight
+      Object.assign(caret.style, { left: `${caretLeft}px`, top: `${caretTop}px`, height: `${caretHeight}px`, borderColor: member.color })
       const label = document.createElement('span'); label.className = 'remote-cursor-label'; label.style.backgroundColor = member.color
       const avatar = document.createElement('span'); avatar.className = 'collaboration-avatar'; avatar.textContent = member.name.slice(0, 1).toUpperCase(); avatar.setAttribute('aria-hidden', 'true')
       label.append(avatar, document.createTextNode(member.name)); caret.append(label); overlay.append(caret)
@@ -123,7 +160,14 @@ async function presence() {
         for (let r = firstRow; r <= lastRow; r++) {
           const a = r === firstRow ? firstCol : 0, b = r === lastRow ? lastCol : rowsText[r].length
           const selection = document.createElement('div'); selection.className = 'remote-selection'
-          Object.assign(selection.style, { backgroundColor: member.color, left: `${gutter + a * native.charWidth - native.deltaX}px`, top: `${r * native.rowHeight - native.deltaY}px`, width: `${(b - a) * native.charWidth}px`, height: `${native.rowHeight}px` }); overlay.append(selection)
+          const selectionRow = rows && renderedRow(rows, rowsText[r], editor.y + r * native.rowHeight - native.deltaY)
+          const measuredStart = selectionRow && textBoundary(selectionRow, a)
+          const measuredEnd = selectionRow && textBoundary(selectionRow, b)
+          const left = measuredStart == null ? gutter + a * native.charWidth - native.deltaX : measuredStart - editor.x
+          const width = measuredStart == null || measuredEnd == null ? (b - a) * native.charWidth : measuredEnd - measuredStart
+          const top = selectionRow ? selectionRow.getBoundingClientRect().top - editor.y : r * native.rowHeight - native.deltaY
+          const height = selectionRow?.getBoundingClientRect().height ?? native.rowHeight
+          Object.assign(selection.style, { backgroundColor: member.color, left: `${left}px`, top: `${top}px`, width: `${width}px`, height: `${height}px` }); overlay.append(selection)
         }
       }
     }
