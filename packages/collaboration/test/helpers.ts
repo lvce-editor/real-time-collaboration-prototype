@@ -1,3 +1,4 @@
+import { gunzipSync } from 'node:zlib'
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { WebSocket } from 'ws'
@@ -5,6 +6,9 @@ import { createCollaboration, type CreateOptions, type Credentials } from '../sr
 
 type ProtocolMessage = {
   type: string
+  cursors?: Array<{ id: string; file: string; cursor: unknown; sequence: number }>
+  presencePending?: boolean
+  members?: NonNullable<ProtocolMessage['member']>[]
   from?: string
   peerKey?: import('node:crypto').JsonWebKey
   payload?: string
@@ -32,11 +36,12 @@ export async function fixture(options: CreateOptions = {}) {
   }
   return { ...collaboration, url, close }
 }
-export async function client(base: string, credentials: Credentials) {
+export async function client(base: string, credentials: Credentials, presence?: 'batched') {
   const socket = new WebSocket(base.replace('http', 'ws') + '/collaboration')
   const messages: ProtocolMessage[] = [], waiters = new Set<() => void>()
-  socket.on('message', raw => {
-    const message = JSON.parse(raw.toString()) as ProtocolMessage; messages.push(message)
+  socket.on('message', (raw, binary) => {
+    const message = JSON.parse(binary ? gunzipSync((raw as Buffer).subarray(8)).toString() : raw.toString())
+    messages.push(message as ProtocolMessage)
     for (const waiter of waiters) waiter()
   })
   socket.on('error', () => {})
@@ -54,6 +59,6 @@ export async function client(base: string, credentials: Credentials) {
   }
   await new Promise((resolve, reject) => { socket.once('open', resolve); socket.once('error', reject) })
   const send = (message: Record<string, unknown>) => socket.send(JSON.stringify(message))
-  send({ type: 'hello', ...credentials })
+  send({ type: 'hello', ...credentials, presence })
   return { socket, send, wait, messages }
 }

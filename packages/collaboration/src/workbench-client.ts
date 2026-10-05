@@ -149,6 +149,7 @@ function handleTransport(data: any, isCurrent = () => true) {
         if (pending.size) log('info', 'Reconnected to authority; unacknowledged edits may have been discarded', { count: pending.size })
         pending.clear(); cursors.clear(); self = message.self; files = message.files; members.clear()
         for (const member of message.members) members.set(member.id, member)
+        for (const cursor of message.cursors) cursors.set(cursor.id, cursor)
         // Signaling can arrive while the workbench opens its native editor.
         // Establish peers before releasing this snapshot's queue position.
         peers.reset(message)
@@ -167,12 +168,21 @@ function handleTransport(data: any, isCurrent = () => true) {
       }
       case 'update': { const positions = await capture(); if (doc) Y.applyUpdate(doc, decode(message.update), 'remote'); await sync(positions); break }
       case 'ack': pending.delete(message.sequence); break
-      case 'member':
-        if (members.get(message.member.id)?.online !== message.member.online) peers.member(message.member)
-        members.set(message.member.id, message.member)
-        if (!message.member.online) cursors.delete(message.member.id)
-        if (message.member.id === self?.id) self = message.member
-        await presence(); if (message.member.online) await publishActiveCursor(); log('info', 'Participant changed', message.member); break
+      case 'roster':
+        members.clear()
+        for (const cursor of message.cursors) cursors.set(cursor.id, cursor)
+        // The roster follows its snapshot on the same ordered WebSocket.
+      case 'members':
+      case 'member': {
+        const changes: Member[] = message.type !== 'member' ? message.members : [message.member]
+        for (const member of changes) {
+          if (members.get(member.id)?.online !== member.online) peers.member(member)
+          members.set(member.id, member)
+          if (!member.online) cursors.delete(member.id)
+          if (member.id === self?.id) self = member
+        }
+        await presence(); log('info', 'Participants changed', { count: changes.length }); break
+      }
       case 'cursor':
         if (message.sequence > (cursors.get(message.id)?.sequence ?? -1)) { cursors.set(message.id, message); await presence() } break
       case 'error':

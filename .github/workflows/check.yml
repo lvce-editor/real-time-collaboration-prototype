@@ -67,7 +67,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run benchmark
-      - run: node --input-type=module -e "import fs from 'node:fs';const r=JSON.parse(fs.readFileSync('benchmark/results.json'));if(r.results.length!==4||r.results.filter(x=>x.count<=100).some(x=>x.status!=='passed'))process.exit(1)"
+      - run: node scripts/verify-benchmark-capacity.ts
       - uses: actions/upload-artifact@v4
         if: always()
         with:

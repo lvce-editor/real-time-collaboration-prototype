@@ -8,8 +8,9 @@ async function setup(t, options = {}) {
   const f = await fixture(options); t.after(f.close)
   const host = f.create('Host', { 'main.js': 'abc', 'other.txt': 'other' })
   const guest = f.join(host.session, 'Guest')
-  const h = await client(f.url, host), g = await client(f.url, guest)
+  const h = await client(f.url, host, 'batched'), g = await client(f.url, guest, 'batched')
   const hs = await h.wait('snapshot'), gs = await g.wait('snapshot')
+  await h.wait('roster'); await g.wait('roster')
   return { f, host, guest, h, g, hs, gs }
 }
 async function grant(h, g, guest) {
@@ -168,4 +169,85 @@ test('import normalizes line endings to the native editor document model', async
   const f = await fixture(); t.after(f.close)
   const host = f.create('Host', { 'file.txt': 'a\r\nb\rc' })
   assert.equal(f.sessions.get(host.session).doc.getText('file.txt').toString(), 'a\nb\nc')
+})
+
+test('batched joins deliver a complete roster and ordered presence to modern and legacy clients', async t => {
+  const f = await fixture(); t.after(f.close)
+  const host = f.create('Host')
+  const h = await client(f.url, host, 'batched')
+  assert.equal((await h.wait('snapshot')).presencePending, true)
+  assert.deepEqual((await h.wait('roster')).members.map(m => m.id), [host.id])
+  const legacyAuth = f.join(host.session, 'Legacy')
+  const legacy = await client(f.url, legacyAuth)
+  const legacySnapshot = await legacy.wait('snapshot')
+  assert.equal(legacySnapshot.presencePending, false)
+  const auth = Array.from({ length: 40 }, (_, i) => f.join(host.session, `Guest ${i}`))
+  const guests = await Promise.all(auth.map(a => client(f.url, a, 'batched')))
+  const rosters = await Promise.all(guests.map(async g => {
+    assert.equal((await g.wait('snapshot')).presencePending, true)
+    return (await g.wait('roster')).members
+  }))
+  const expected = new Set([host.id, legacyAuth.id, ...auth.map(a => a.id)])
+  // The last joiner's roster contains everyone; earlier snapshots plus later
+  // ordered deltas must also converge to the full directory.
+  const apply = (map, message) => {
+    if (message.type === 'member') map.set(message.member.id, message.member)
+    if (message.type === 'members') for (const member of message.members) map.set(member.id, member)
+  }
+  await h.wait(m => m.type === 'members' && m.members.some(p => p.id === auth.at(-1).id))
+  await legacy.wait(m => m.type === 'member' && m.member.id === auth.at(-1).id)
+  for (const [i, g] of guests.entries()) {
+    const members = new Map(rosters[i].map(m => [m.id, m]))
+    if (!members.has(auth.at(-1).id)) apply(members, await g.wait(m => m.type === 'members' && m.members.some(p => p.id === auth.at(-1).id)))
+    for (const message of g.messages) apply(members, message)
+    assert.deepEqual(new Set([...members.values()].filter(m => m.online).map(m => m.id)), expected)
+  }
+  // A permission change flushes pending joins before changing authority. A stale
+  // reader join event must never overwrite its subsequent grant or revocation.
+  h.send({ type: 'permission', id: auth[0].id, role: 'writer' })
+  await guests[0].wait(m => m.type === 'member' && m.member.id === auth[0].id && m.member.role === 'writer')
+  const replacement = await client(f.url, auth[0], 'batched')
+  const snapshot = await replacement.wait('snapshot')
+  assert.equal(snapshot.self.role, 'writer')
+  await replacement.wait('roster')
+  replacement.socket.close()
+  await h.wait(m => m.type === 'members' && m.members.some(p => p.id === auth[0].id && !p.online))
+  await legacy.wait(m => m.type === 'member' && m.member.id === auth[0].id && !m.member.online)
+})
+
+test('slow consumers close with 1013 and recover committed state through a batched snapshot', async t => {
+  const f = await fixture(); t.after(f.close)
+  const host = f.create('Host', { 'main.js': 'abc' })
+  const guest = f.join(host.session, 'Slow')
+  const h = await client(f.url, host), g = await client(f.url, guest, 'batched')
+  const hs = await h.wait('snapshot'); await g.wait('snapshot'); await g.wait('roster')
+  const serverSocket = f.sessions.get(host.session).members.get(guest.token).socket
+  // Deterministically inject outbound backpressure at the real delivery seam.
+  Object.defineProperty(serverSocket, 'bufferedAmount', { value: 2_000_001 })
+  const closed = new Promise<number>(resolve => g.socket.once('close', resolve))
+  const { doc, update } = edit(hs, 'COMMITTED'); t.after(() => doc.destroy())
+  h.send({ type: 'update', update }); await h.wait('ack')
+  assert.equal(await closed, 1013)
+  const recovered = await client(f.url, guest, 'batched')
+  const snapshot = await recovered.wait('snapshot'); await recovered.wait('roster')
+  const replica = new Y.Doc(); t.after(() => replica.destroy()); Y.applyUpdate(replica, decode(snapshot.update))
+  assert.equal(replica.getText('main.js').toString(), 'aCOMMITTEDbc')
+  assert.equal(snapshot.self.role, 'reader')
+})
+
+test('late joins and reconnects receive current cursors without asking every peer to republish', async t => {
+  const f = await fixture(); t.after(f.close)
+  const host = f.create('Host', { 'main.js': 'abc' })
+  const h = await client(f.url, host, 'batched'); await h.wait('snapshot'); await h.wait('roster')
+  h.send({ type: 'cursor', id: 'spoof', file: 'main.js', cursor: { anchor: {}, head: {} } })
+  h.send({ type: 'ping' }); await h.wait('pong')
+  const guest = f.join(host.session, 'Late')
+  const g = await client(f.url, guest, 'batched'); await g.wait('snapshot')
+  const roster = await g.wait('roster')
+  assert.equal(roster.cursors.length, 1)
+  assert.equal(roster.cursors[0].id, host.id)
+  assert.equal(roster.cursors[0].file, 'main.js')
+  h.socket.close(); await g.wait(m => m.type === 'member' && m.member.id === host.id && !m.member.online)
+  const replacement = await client(f.url, guest, 'batched'); await replacement.wait('snapshot')
+  assert.deepEqual((await replacement.wait('roster')).cursors, [])
 })
